@@ -28,6 +28,10 @@ except:
 
 import warnings
 
+from loguru import logger as debug_logger
+log_path = os.path.join(os.path.dirname(os.path.realpath(__file__)), "_swapper.log")
+debug_logger.add(log_path, backtrace=True, diagnose=True)
+
 np.warnings = warnings
 np.warnings.filterwarnings('ignore')
 
@@ -85,7 +89,7 @@ SOURCE_IMAGE_HASH = None
 TARGET_FACES = None
 TARGET_IMAGE_HASH = None
 
-
+@debug_logger.catch
 def getAnalysisModel():
     global ANALYSIS_MODEL
     if ANALYSIS_MODEL is None:
@@ -94,7 +98,7 @@ def getAnalysisModel():
         )
     return ANALYSIS_MODEL
 
-
+@debug_logger.catch
 def getFaceSwapModel(model_path: str):
     global FS_MODEL
     global CURRENT_FS_MODEL_PATH
@@ -220,6 +224,7 @@ def half_det_size(det_size):
     logger.status("Trying to halve 'det_size' parameter")
     return (det_size[0] // 2, det_size[1] // 2)
 
+@debug_logger.catch
 def analyze_faces(img_data: np.ndarray, det_size=(640, 640)):
     logger.info("Applied Execution Provider: %s", PROVIDERS[0])
     face_analyser = copy.deepcopy(getAnalysisModel())
@@ -269,7 +274,7 @@ def get_face_single(img_data: np.ndarray, face, face_index=0, det_size=(640, 640
     except IndexError:
         return None, 0, face_age, face_gender
 
-
+@debug_logger.catch
 def swap_face(
     source_img: Image.Image,
     target_img: Image.Image,

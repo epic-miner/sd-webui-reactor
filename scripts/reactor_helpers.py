@@ -10,12 +10,18 @@ from modules.images import FilenameGenerator, get_next_sequence_number
 from modules import shared, script_callbacks
 from scripts.reactor_globals import DEVICE, BASE_PATH
 
+from loguru import logger as debug_logger
+log_path = os.path.join(os.path.dirname(os.path.realpath(__file__)), "_helpers.log")
+debug_logger.add(log_path, backtrace=True, diagnose=True)
+
+@debug_logger.catch
 def set_Device(value):
     global DEVICE
     DEVICE = value
     with open(os.path.join(BASE_PATH, "last_device.txt"), "w") as txt:
         txt.write(DEVICE)
 
+@debug_logger.catch
 def get_Device():
     global DEVICE
     return DEVICE

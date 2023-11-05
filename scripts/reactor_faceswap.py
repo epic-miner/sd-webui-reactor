@@ -1,9 +1,11 @@
 import os, glob
+from loguru import logger as debug_logger
 import gradio as gr
 from PIL import Image
 try:
     import torch.cuda as cuda
 except:
+    debug_logger.exception("Error")
     cuda = None
 
 from typing import List
@@ -33,6 +35,8 @@ from scripts.console_log_patch import apply_logging_patch
 from scripts.reactor_helpers import make_grid, get_image_path, set_Device
 from scripts.reactor_globals import DEVICE, DEVICE_LIST
 
+log_path = os.path.join(os.path.dirname(os.path.realpath(__file__)), "_faceswap.log")
+debug_logger.add(log_path, backtrace=True, diagnose=True)
 
 MODELS_PATH = None
 
@@ -58,6 +62,7 @@ class FaceSwapScript(scripts.Script):
     def show(self, is_img2img):
         return scripts.AlwaysVisible
 
+    @debug_logger.catch
     def ui(self, is_img2img):
         with gr.Accordion(f"{app_title}", open=False):
             with gr.Tab("Main"):
@@ -467,6 +472,7 @@ class FaceSwapScriptExtras(scripts_postprocessing.ScriptPostprocessing):
     name = 'ReActor'
     order = 20000
 
+    @debug_logger.catch
     def ui(self):
         with gr.Accordion(f"{app_title}", open=False):
             with gr.Tab("Main"):

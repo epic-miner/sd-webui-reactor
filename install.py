@@ -14,6 +14,9 @@ except:
     except:
         model_path = os.path.abspath("models")
 
+from loguru import logger as debug_logger
+log_path = os.path.join(os.path.dirname(os.path.realpath(__file__)), "_install.log")
+debug_logger.add(log_path, backtrace=True, diagnose=True)
 
 BASE_PATH = os.path.dirname(os.path.realpath(__file__))
 
@@ -38,10 +41,6 @@ if os.path.exists(models_dir_old):
 model_url = "https://github.com/facefusion/facefusion-assets/releases/download/models/inswapper_128.onnx"
 model_name = os.path.basename(model_url)
 model_path = os.path.join(models_dir, model_name)
-
-def get_sd_option(name: str, default: Any) -> Any:
-    assert shared.opts.data is not None
-    return shared.opts.data.get(name, default)
 
 def pip_install(*args):
     subprocess.run([sys.executable, "-m", "pip", "install", *args])
@@ -120,6 +119,7 @@ with open(req_file) as file:
             install_count += 1
             pip_install(ort)
     except Exception as e:
+        debug_logger.exception("InstallError")
         print(e)
         print(f"\nERROR: Failed to install {ort} - ReActor won't start")
         raise e
@@ -138,6 +138,7 @@ with open(req_file) as file:
                 install_count += 1
                 pip_install(package)
         except Exception as e:
+            debug_logger.exception("InstallError")
             print(e)
             print(f"\nERROR: Failed to install {package} - ReActor won't start")
             raise e

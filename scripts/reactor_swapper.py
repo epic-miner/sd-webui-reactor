@@ -43,10 +43,10 @@ else:
     PROVIDERS = ["CPUExecutionProvider"]
 class MaskOption:
     DEFAULT_FACE_AREAS = ["Face"]
-    DEFAULT_FACE_SIZE = 512
-    DEFAULT_VIGNETTE_THRESHOLD = 0.1
-    DEFAULT_MASK_BLUR = 12,
-    DEFAULT_USE_MINIMAL_AREA = True
+    DEFAULT_FACE_SIZE:int = 512
+    DEFAULT_VIGNETTE_THRESHOLD:float = 0.1
+    DEFAULT_MASK_BLUR:int = 12,
+    DEFAULT_USE_MINIMAL_AREA:bool = True
 
 @dataclass
 class EnhancementOptions:
@@ -63,7 +63,7 @@ class EnhancementOptions:
 class MaskOptions:
     mask_areas:List[str]
     save_face_mask: bool = False
-    mask_blur:int = 12    
+    mask_blur:int = 12   
     face_size:int  = 512
     vignette_fallback_threshold:float =0.10
     use_minimal_area:bool = True
@@ -336,7 +336,7 @@ def swap_face(
 ):
     global SOURCE_FACES, SOURCE_IMAGE_HASH, TARGET_FACES, TARGET_IMAGE_HASH, PROVIDERS
     result_image = target_img
-
+    masked_faces = None
     PROVIDERS = ["CUDAExecutionProvider"] if device == "CUDA" else ["CPUExecutionProvider"]
     
     if check_process_halt():

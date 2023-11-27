@@ -1,7 +1,7 @@
 import copy
 import os
 from dataclasses import dataclass
-from typing import List, Union
+from typing import List, Tuple, Union
 
 import cv2
 import numpy as np
@@ -41,7 +41,12 @@ if DEVICE == "CUDA":
     PROVIDERS = ["CUDAExecutionProvider"]
 else:
     PROVIDERS = ["CPUExecutionProvider"]
-
+class MaskOption:
+    DEFAULT_FACE_AREAS = ["Face"]
+    DEFAULT_FACE_SIZE = 512
+    DEFAULT_VIGNETTE_THRESHOLD = 0.1
+    DEFAULT_MASK_BLUR = 12,
+    DEFAULT_USE_MINIMAL_AREA = True
 
 @dataclass
 class EnhancementOptions:
@@ -52,7 +57,16 @@ class EnhancementOptions:
     face_restorer: FaceRestoration = None
     restorer_visibility: float = 0.5
     codeformer_weight: float = 0.5
+    
 
+@dataclass
+class MaskOptions:
+    mask_areas:List[str]
+    save_face_mask: bool = False
+    mask_blur:int = 12    
+    face_size:int  = 512
+    vignette_fallback_threshold:float =0.10
+    use_minimal_area:bool = True
 
 MESSAGED_STOPPED = False
 MESSAGED_SKIPPED = False
@@ -175,7 +189,7 @@ def enhance_image(image: Image, enhancement_options: EnhancementOptions):
         result_image = restore_face(result_image, enhancement_options)
 
     return result_image
-def enhance_image_and_mask(image: Image.Image, enhancement_options: EnhancementOptions,target_img_orig:Image.Image,entire_mask_image:Image.Image)->Image.Image:
+def enhance_image_and_mask(image: Image.Image, enhancement_options: EnhancementOptions,target_img_orig:Image.Image,entire_mask_image:Image.Image)->Tuple[Image.Image,Image.Image]:
     result_image = image
     
     if check_process_halt(msgforced=True):
@@ -183,7 +197,11 @@ def enhance_image_and_mask(image: Image.Image, enhancement_options: EnhancementO
     
     if enhancement_options.do_restore_first:
         
+      
         result_image = restore_face(result_image, enhancement_options)
+
+        transparent = Image.new("RGBA",result_image.size)
+        masked_faces = Image.composite(result_image.convert("RGBA"),transparent,entire_mask_image)
         result_image = Image.composite(result_image,target_img_orig,entire_mask_image)
         result_image = upscale_image(result_image, enhancement_options)
 
@@ -191,10 +209,13 @@ def enhance_image_and_mask(image: Image.Image, enhancement_options: EnhancementO
 
         result_image = upscale_image(result_image, enhancement_options)
         entire_mask_image = Image.fromarray(cv2.resize(np.array(entire_mask_image),result_image.size, interpolation=cv2.INTER_AREA)).convert("L")
+       
         result_image = Image.composite(result_image,target_img_orig,entire_mask_image)
         result_image = restore_face(result_image, enhancement_options)
+        transparent = Image.new("RGBA",result_image.size)
+        masked_faces = Image.composite(result_image.convert("RGBA"),transparent,entire_mask_image)
+    return result_image, masked_faces
 
-    return result_image
 
     
 def get_gender(face, face_index):
@@ -310,7 +331,8 @@ def swap_face(
     source_hash_check: bool = True,
     target_hash_check: bool = False,
     device: str = "CPU",
-    mask_face:bool = False
+    mask_face:bool = False,
+    mask_options:Union[MaskOptions, None]= None
 ):
     global SOURCE_FACES, SOURCE_IMAGE_HASH, TARGET_FACES, TARGET_IMAGE_HASH, PROVIDERS
     result_image = target_img
@@ -444,7 +466,7 @@ def swap_face(
                             swapped_image = face_swapper.get(result, target_face, source_face)
                                                     
                             if mask_face:
-                                result = apply_face_mask(swapped_image=swapped_image,target_image=result,target_face=target_face,entire_mask_image=entire_mask_image)
+                                result = apply_face_mask(swapped_image=swapped_image,target_image=result,target_face=target_face,entire_mask_image=entire_mask_image,mask_options=mask_options)
                             else:
                                 result = swapped_image
                             swapped += 1
@@ -480,8 +502,8 @@ def swap_face(
                 result_image = Image.fromarray(cv2.cvtColor(result, cv2.COLOR_BGR2RGB))
                 
                 if enhancement_options is not None and swapped > 0:
-                    if mask_face and entire_mask_image is not None:
-                        result_image = enhance_image_and_mask(result_image, enhancement_options,Image.fromarray(target_img_orig),Image.fromarray(entire_mask_image).convert("L"))    
+                    if  mask_face and entire_mask_image is not None:
+                       result_image, masked_faces = enhance_image_and_mask(result_image, enhancement_options,Image.fromarray(target_img_orig),Image.fromarray(entire_mask_image).convert("L"))    
                     else:    
                         result_image = enhance_image(result_image, enhancement_options)
                 elif mask_face and entire_mask_image is not None and swapped > 0:
@@ -492,20 +514,19 @@ def swap_face(
         else:
             logger.status("No source face(s) found")
     
-    return result_image, output, swapped
+    return result_image, output, swapped,masked_faces
 
 
 
-def apply_face_mask(swapped_image:np.ndarray,target_image:np.ndarray,target_face,entire_mask_image:np.array)->np.ndarray:
-    logger.status("Masking Face")
+def apply_face_mask(swapped_image:np.ndarray,target_image:np.ndarray,target_face,entire_mask_image:np.array,mask_options:Union[MaskOptions,None] = None)->np.ndarray:
+    logger.status("Masking Face") 
     mask_generator =  BiSeNetMaskGenerator()
-    face = Face(target_image,Rect.from_ndarray(np.array(target_face.bbox)),1.6,512,"")
+    face = Face(target_image,Rect.from_ndarray(np.array(target_face.bbox)),1.6,mask_options.face_size,"")
     face_image = np.array(face.image)
-    process_face_image(face)
     face_area_on_image = face.face_area_on_image
-    mask = mask_generator.generate_mask(face_image,face_area_on_image=face_area_on_image,affected_areas=["Face"],mask_size=0,use_minimal_area=True)
-    mask = cv2.blur(mask, (12, 12))
-    """entire_mask_image = np.zeros_like(target_image)"""
+   
+    mask = mask_generator.generate_mask(face_image,face_area_on_image=face_area_on_image,affected_areas=mask_options.mask_areas,mask_size=0,use_minimal_area=mask_options.use_minimal_area)
+    mask = cv2.blur(mask, (mask_options.mask_blur, mask_options.mask_blur))
     larger_mask = cv2.resize(mask, dsize=(face.width, face.height))
     entire_mask_image[
         face.top : face.bottom,
@@ -554,22 +575,7 @@ def color_generator(colors):
 
 
 color_iter = color_generator(colors)
-def process_face_image(
-        face: Face,
-        **kwargs,
-    ) -> Image:
-        image = np.array(face.image)
-        overlay = image.copy()
-        cv2.rectangle(overlay, (0, 0), (image.shape[1], image.shape[0]), next(color_iter), -1)
-        l, t, r, b = face.face_area_on_image
-        cv2.rectangle(overlay, (l, t), (r, b), (0, 0, 0), 10)
-        if face.landmarks_on_image is not None:
-            for landmark in face.landmarks_on_image:
-                cv2.circle(overlay, (int(landmark.x), int(landmark.y)), 6, (0, 0, 0), 10)
-        alpha = 0.3
-        output = cv2.addWeighted(image, 1 - alpha, overlay, alpha, 0)
-        
-        return Image.fromarray(output)
+
 def dilate_erode(img: Image.Image, value: int) -> Image.Image:
     """
     The dilate_erode function takes an image and a value.

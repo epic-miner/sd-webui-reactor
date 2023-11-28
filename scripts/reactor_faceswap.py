@@ -63,11 +63,15 @@ class FaceSwapScript(scripts.Script):
 
     def ui(self, is_img2img):
         with gr.Accordion(f"{app_title}", open=False):
+            enable = gr.Checkbox(False, label="Enable", info=f"The Fast and Simple FaceSwap Extension - {version_flag}")
+            gr.Markdown("<br>")
             with gr.Tab("Main"):
+
                 with gr.Column():
-                    img = gr.Image(type="pil")
-                    face_files = gr.File(label="Multiple Source Face Files",file_count="multiple",file_types=["image"],info="Upload multiple face files and each file will be processed in post processing")
-                    enable = gr.Checkbox(False, label="Enable", info=f"The Fast and Simple FaceSwap Extension - {version_flag}")
+                    with gr.Tab("Single Source Image"):
+                        img = gr.Image(type="pil")
+                    with gr.Tab("Multiple Source Images"):
+                        face_files = gr.File(label="Multiple Source Face Files",file_count="multiple",file_types=["image"],info="Upload multiple face files and each file will be processed in post processing")
                     save_original = gr.Checkbox(False, label="Save Original", info="Save the original image(s) made before swapping; If you use \"img2img\" - this option will affect with \"Swap in generated\" only")
                     mask_face = gr.Checkbox(False, label="Mask Faces", info="Attempt to mask only the faces and eliminate pixelation of the image around the contours. Additional settings in the Masking tab.")
                     
@@ -634,7 +638,7 @@ class FaceSwapScriptExtras(scripts_postprocessing.ScriptPostprocessing):
             with gr.Tab("Main"):
                 with gr.Column():
                     img = gr.Image(type="pil")
-                    face_files = gr.File(file_count="multiple",file_types=["image"],info="Upload multiple face files and each file will be processed in post processing")
+                    #face_files = gr.File(file_count="multiple",file_types=["image"],info="Upload multiple face files and each file will be processed in post processing")
                     enable = gr.Checkbox(False, label="Enable", info=f"The Fast and Simple FaceSwap Extension - {version_flag}")
                     mask_face = gr.Checkbox(False, label="Mask Faces", info="Attempt to mask only the faces and eliminate pixelation of the image around the contours. Additional settings in the Masking tab.")
                     gr.Markdown("Source Image (above):")
@@ -696,7 +700,7 @@ class FaceSwapScriptExtras(scripts_postprocessing.ScriptPostprocessing):
                         0, 1, 1, step=0.1, label="Upscaler Visibility (if scale = 1)"
                     )
             with gr.Tab("Masking"):
-                save_face_mask = gr.Checkbox(False, label="Save Face Mask", info="Save the face mask as a separate image with alpha transparency.")
+                #save_face_mask = gr.Checkbox(False, label="Save Face Mask", info="Save the face mask as a separate image with alpha transparency.")
                 use_minimal_area = gr.Checkbox(MaskOption.DEFAULT_USE_MINIMAL_AREA, label="Use Minimal Area", info="Use the least amount of area for the mask as possible. This is good for multiple faces that are close together or for preserving the most of the surrounding image.")
                 
                 mask_areas = gr.CheckboxGroup(
@@ -773,13 +777,13 @@ class FaceSwapScriptExtras(scripts_postprocessing.ScriptPostprocessing):
             'codeformer_weight': codeformer_weight,
             'device': device,
             'mask_face':mask_face,
-            'save_face_mask':save_face_mask,
+           
             'mask_areas':mask_areas,
             'mask_blur':mask_blur,
             'mask_vignette_fallback_threshold':mask_vignette_fallback_threshold,
             'face_size':face_size,
             'use_minimal_area':use_minimal_area,
-            'face_files':face_files
+           
         }
         return args
 
@@ -839,13 +843,13 @@ class FaceSwapScriptExtras(scripts_postprocessing.ScriptPostprocessing):
             self.codeformer_weight = args['codeformer_weight']
             self.device = args['device']
             self.mask_face = args['mask_face']
-            self.save_face_mask = args['save_face_mask']
+            self.save_face_mask = None
             self.mask_areas= args['mask_areas']
             self.mask_blur= args['mask_blur']
             self.mask_vignette_fallback_threshold= args['mask_vignette_fallback_threshold']
             self.face_size= args['face_size']
             self.use_minimal_area= args['use_minimal_area']
-            self.face_files = args['face_files']
+            self.face_files = None
             if self.gender_source is None or self.gender_source == "No":
                 self.gender_source = 0
             if self.gender_target is None or self.gender_target == "No":

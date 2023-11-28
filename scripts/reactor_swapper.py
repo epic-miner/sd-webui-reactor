@@ -341,7 +341,9 @@ def swap_face(
     
     if check_process_halt():
         return result_image, [], 0
-    
+    if mask_options is None:
+        mask_options = MaskOptions()
+        
     if model is not None:
 
         if isinstance(source_img, str):  # source_img is a base64 string

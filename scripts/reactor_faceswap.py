@@ -1,5 +1,6 @@
 import os, glob
 import gradio as gr
+import tempfile
 from PIL import Image
 try:
     import torch.cuda as cuda
@@ -8,7 +9,7 @@ except:
     EP_is_visible = False
 
 from typing import List
-
+from PIL import Image
 import modules.scripts as scripts
 from modules.upscaler import Upscaler, UpscalerData
 from modules import scripts, shared, images, scripts_postprocessing
@@ -28,11 +29,12 @@ except:
         model_path = os.path.abspath("models")
 
 from scripts.reactor_logger import logger
-from scripts.reactor_swapper import EnhancementOptions, swap_face, check_process_halt, reset_messaged
+from scripts.reactor_swapper import EnhancementOptions,MaskOptions,MaskOption, swap_face, check_process_halt, reset_messaged
 from scripts.reactor_version import version_flag, app_title
 from scripts.console_log_patch import apply_logging_patch
 from scripts.reactor_helpers import make_grid, get_image_path, set_Device
 from scripts.reactor_globals import DEVICE, DEVICE_LIST
+
 
 
 MODELS_PATH = None
@@ -61,13 +63,18 @@ class FaceSwapScript(scripts.Script):
 
     def ui(self, is_img2img):
         with gr.Accordion(f"{app_title}", open=False):
+            enable = gr.Checkbox(False, label="Enable", info=f"The Fast and Simple FaceSwap Extension - {version_flag}")
+            gr.Markdown("<br>")
             with gr.Tab("Main"):
-                with gr.Column():
-                    img = gr.Image(type="pil")
-                    enable = gr.Checkbox(False, label="Enable", info=f"The Fast and Simple FaceSwap Extension - {version_flag}")
-                    save_original = gr.Checkbox(False, label="Save Original", info="Save the original image(s) made before swapping; If you use \"img2img\" - this option will affect with \"Swap in generated\" only")
-                    mask_face = gr.Checkbox(False, label="Mask Faces", info="Attempt to mask only the faces and eliminate pixelation of the image around the contours.")
 
+                with gr.Column():
+                    with gr.Tab("Single Source Image"):
+                        img = gr.Image(type="pil")
+                    with gr.Tab("Multiple Source Images"):
+                        face_files = gr.File(label="Multiple Source Face Files",file_count="multiple",file_types=["image"],info="Upload multiple face files and each file will be processed in post processing")
+                    save_original = gr.Checkbox(False, label="Save Original", info="Save the original image(s) made before swapping; If you use \"img2img\" - this option will affect with \"Swap in generated\" only")
+                    mask_face = gr.Checkbox(False, label="Mask Faces", info="Attempt to mask only the faces and eliminate pixelation of the image around the contours. Additional settings in the Masking tab.")
+                    
                     gr.Markdown("<br>")
                     gr.Markdown("Source Image (above):")
                     with gr.Row():
@@ -140,6 +147,26 @@ class FaceSwapScript(scripts.Script):
                     upscaler_visibility = gr.Slider(
                         0, 1, 1, step=0.1, label="Upscaler Visibility (if scale = 1)"
                     )
+            with gr.Tab("Masking"):
+                save_face_mask = gr.Checkbox(False, label="Save Face Mask", info="Save the face mask as a separate image with alpha transparency.")
+                use_minimal_area = gr.Checkbox(MaskOption.DEFAULT_USE_MINIMAL_AREA, label="Use Minimal Area", info="Use the least amount of area for the mask as possible. This is good for multiple faces that are close together or for preserving the most of the surrounding image.")
+                
+                mask_areas = gr.CheckboxGroup(
+                    label="Mask areas", choices=["Face", "Hair", "Hat", "Neck"], type="value", value= MaskOption.DEFAULT_FACE_AREAS
+                )
+                face_size = gr.Radio(
+                    label = "Face Size", choices = [512,256,128],value=MaskOption.DEFAULT_FACE_SIZE,type="value", info="Size of the masked area. Use larger numbers if the face is expected to be large, smaller if small. Default is 512."
+                )
+                mask_blur = gr.Slider(label="Mask blur", minimum=0, maximum=64, step=1, value=12,info="The number of pixels from the outer edge of the mask to blur.")
+
+                mask_vignette_fallback_threshold = gr.Slider(
+                    minimum=0.1,
+                    maximum=1.0,
+                    step=0.01,
+                    value=MaskOption.DEFAULT_VIGNETTE_THRESHOLD,
+                    label="Vignette fallback threshold",
+                    info="Switch to a rectangular vignette mask when masked area is only this specified percentage of Face Size."
+                )
             with gr.Tab("Settings"):
                 models = get_models()
                 with gr.Row(visible=EP_is_visible):
@@ -213,7 +240,14 @@ class FaceSwapScript(scripts.Script):
             source_hash_check,
             target_hash_check,
             device,
-            mask_face
+            mask_face,
+            save_face_mask,
+            mask_areas,
+            mask_blur,
+            use_minimal_area,
+            face_size,
+            mask_vignette_fallback_threshold,
+            face_files
         ]
 
 
@@ -242,7 +276,17 @@ class FaceSwapScript(scripts.Script):
             restorer_visibility=self.face_restorer_visibility,
             codeformer_weight=self.codeformer_weight,
         )
-
+    @property
+    def mask_options(self) -> MaskOptions:
+        return MaskOptions(
+            mask_areas = self.mask_areas,
+            save_face_mask = self.save_face_mask,
+            mask_blur = self.mask_blur,
+            face_size = self.mask_face_size,
+            vignette_fallback_threshold = self.mask_vignette_fallback_threshold,
+            use_minimal_area = self.mask_use_minimal_area,
+        )
+    
     def process(
         self,
         p: StableDiffusionProcessing,
@@ -267,16 +311,24 @@ class FaceSwapScript(scripts.Script):
         source_hash_check,
         target_hash_check,
         device,
-        mask_face
+        mask_face,
+        save_face_mask:bool,
+        mask_areas,
+        mask_blur:int,
+        mask_use_minimal_area,
+        mask_face_size,
+        mask_vignette_fallback_threshold,
+        face_files
     ):
         self.enable = enable
         if self.enable:
-
+            
             reset_messaged()
             if check_process_halt():
                 return
             
             global MODELS_PATH
+            
             self.source = img
             self.face_restorer_name = face_restorer_name
             self.upscaler_scale = upscaler_scale
@@ -296,6 +348,13 @@ class FaceSwapScript(scripts.Script):
             self.target_hash_check = target_hash_check
             self.device = device
             self.mask_face = mask_face
+            self.save_face_mask = save_face_mask
+            self.mask_blur = mask_blur
+            self.mask_areas = mask_areas
+            self.mask_face_size = mask_face_size
+            self.mask_vignette_fallback_threshold = mask_vignette_fallback_threshold
+            self.mask_use_minimal_area = mask_use_minimal_area
+            self.face_files = face_files
             if self.gender_source is None or self.gender_source == "No":
                 self.gender_source = 0
             if self.gender_target is None or self.gender_target == "No":
@@ -318,9 +377,10 @@ class FaceSwapScript(scripts.Script):
                 self.target_hash_check = False
 
             set_Device(self.device)
-            
+            apply_logging_patch(console_logging_level)
             if self.source is not None:
-                apply_logging_patch(console_logging_level)
+                
+               
                 if isinstance(p, StableDiffusionProcessingImg2Img) and self.swap_in_source:
                     logger.status("Working: source face index %s, target face index %s", self.source_faces_index, self.faces_index)
 
@@ -339,7 +399,8 @@ class FaceSwapScript(scripts.Script):
                             source_hash_check=self.source_hash_check,
                             target_hash_check=self.target_hash_check,
                             device=self.device,
-                            mask_face=mask_face
+                            mask_face=mask_face,
+                            mask_options=self.mask_options
                         )
                         p.init_images[i] = result
                         # result_path = get_image_path(p.init_images[i], p.outpath_samples, "", p.all_seeds[i], p.all_prompts[i], "txt", p=p, suffix="-swapped")
@@ -350,7 +411,7 @@ class FaceSwapScript(scripts.Script):
                         if shared.state.interrupted or shared.state.skipped:
                             return
             
-            else:
+            elif self.face_files is None or len(self.face_files) == 0:
                 logger.error("Please provide a source face")
 
     def postprocess(self, p: StableDiffusionProcessing, processed: Processed, *args):
@@ -359,13 +420,14 @@ class FaceSwapScript(scripts.Script):
             reset_messaged()
             if check_process_halt():
                 return
+            postprocess_run: bool = True
 
+            orig_images : List[Image.Image] = processed.images[processed.index_of_first_image:]
+            orig_infotexts : List[str] = processed.infotexts[processed.index_of_first_image:]
+            result_images:List[Image.Image] = []
+            
+            
             if self.save_original:
-
-                postprocess_run: bool = True
-
-                orig_images : List[Image.Image] = processed.images[processed.index_of_first_image:]
-                orig_infotexts : List[str] = processed.infotexts[processed.index_of_first_image:]
 
                 result_images: List = processed.images
                 # result_info: List = processed.infotexts
@@ -373,13 +435,14 @@ class FaceSwapScript(scripts.Script):
                 if self.swap_in_generated:
                     logger.status("Working: source face index %s, target face index %s", self.source_faces_index, self.faces_index)
                     if self.source is not None:
+                       
                         for i,(img,info) in enumerate(zip(orig_images, orig_infotexts)):
                             if check_process_halt():
                                 postprocess_run = False
                                 break
                             if len(orig_images) > 1:
                                 logger.status("Swap in %s", i)
-                            result, output, swapped = swap_face(
+                            result, output, swapped, masked_faces = swap_face(
                                 self.source,
                                 img,
                                 source_faces_index=self.source_faces_index,
@@ -391,7 +454,8 @@ class FaceSwapScript(scripts.Script):
                                 source_hash_check=self.source_hash_check,
                                 target_hash_check=self.target_hash_check,
                                 device=self.device,
-                                mask_face=self.mask_face
+                                mask_face=self.mask_face,
+                                mask_options=self.mask_options
                             )
                             if result is not None and swapped > 0:
                                 result_images.append(result)
@@ -400,6 +464,14 @@ class FaceSwapScript(scripts.Script):
                                     img_path = save_image(result, p.outpath_samples, "", p.all_seeds[0], p.all_prompts[0], "png",info=info, p=p, suffix=suffix)
                                 except:
                                     logger.error("Cannot save a result image - please, check SD WebUI Settings (Saving and Paths)")
+                                if self.mask_face and self.save_face_mask and masked_faces is not None:
+                                    result_images.append(masked_faces)
+                                    suffix = "-mask"
+                                    try:
+                                        img_path = save_image(masked_faces, p.outpath_samples, "", p.all_seeds[0], p.all_prompts[0], "png",info=info, p=p, suffix=suffix)
+                                    except:
+                                        logger.error("Cannot save a Masked Face image - please, check SD WebUI Settings (Saving and Paths)")
+                                  
                             elif result is None:
                                 logger.error("Cannot create a result image")
                             
@@ -408,7 +480,48 @@ class FaceSwapScript(scripts.Script):
                             #     fullfn = split_fullfn[0] + ".txt"
                             #     with open(fullfn, 'w', encoding="utf8") as f:
                             #         f.writelines(output)
-                
+                    if self.face_files is not None and len(self.face_files) > 0:
+                       
+                        for i,(img,info) in enumerate(zip(orig_images, orig_infotexts)):
+                            for j,f_img in enumerate(self.face_files):
+                                
+                                if check_process_halt():
+                                    postprocess_run = False
+                                    break
+                                if len(self.face_files) > 1:
+                                    logger.status("Swap in face file #%s", j+1)
+                                result, output, swapped, masked_faces = swap_face(
+                                    Image.open(os.path.abspath(f_img.name)),
+                                    img,
+                                    source_faces_index=self.source_faces_index,
+                                    faces_index=self.faces_index,
+                                    model=self.model,
+                                    enhancement_options=self.enhancement_options,
+                                    gender_source=self.gender_source,
+                                    gender_target=self.gender_target,
+                                    source_hash_check=self.source_hash_check,
+                                    target_hash_check=self.target_hash_check,
+                                    device=self.device,
+                                    mask_face=self.mask_face,
+                                    mask_options=self.mask_options
+                                )
+                                if result is not None and swapped > 0:
+                                    result_images.append(result)
+                                    suffix = f"-swapped-ff-{j+1}"
+                                    try:
+                                        img_path = save_image(result, p.outpath_samples, "", p.all_seeds[0], p.all_prompts[0], "png",info=info, p=p, suffix=suffix)
+                                    except:
+                                        logger.error("Cannot save a result image - please, check SD WebUI Settings (Saving and Paths)")
+                                    if self.mask_face and self.save_face_mask and masked_faces is not None:
+                                        result_images.append(masked_faces)
+                                        suffix = f"-mask-ff-{j+1}"
+                                        try:
+                                            img_path = save_image(masked_faces, p.outpath_samples, "", p.all_seeds[0], p.all_prompts[0], "png",info=info, p=p, suffix=suffix)
+                                        except:
+                                            logger.error("Cannot save a Masked Face image - please, check SD WebUI Settings (Saving and Paths)")
+                                    
+                                elif result is None:
+                                    logger.error("Cannot create a result image")
                 if shared.opts.return_grid and len(result_images) > 2 and postprocess_run:
                     grid = make_grid(result_images)
                     result_images.insert(0, grid)
@@ -419,13 +532,62 @@ class FaceSwapScript(scripts.Script):
                 
                 processed.images = result_images
                 # processed.infotexts = result_info
-    
+            elif self.face_files is not None and len(self.face_files) > 0:
+                for i,(img,info) in enumerate(zip(orig_images, orig_infotexts)):
+                    for j,f_img in enumerate(self.face_files):
+                        
+                        if check_process_halt():
+                            postprocess_run = False
+                            break
+                        if len(self.face_files) > 1:
+                            logger.status("Swap in face file #%s", j+1)
+                        result, output, swapped, masked_faces = swap_face(
+                            Image.open(os.path.abspath(f_img.name)),
+                            img,
+                            source_faces_index=self.source_faces_index,
+                            faces_index=self.faces_index,
+                            model=self.model,
+                            enhancement_options=self.enhancement_options,
+                            gender_source=self.gender_source,
+                            gender_target=self.gender_target,
+                            source_hash_check=self.source_hash_check,
+                            target_hash_check=self.target_hash_check,
+                            device=self.device,
+                            mask_face=self.mask_face,
+                            mask_options=self.mask_options
+                        )
+                        if result is not None and swapped > 0:
+                            result_images.append(result)
+                            suffix = f"-swapped-ff-{j+1}"
+                            try:
+                                img_path = save_image(result, p.outpath_samples, "", p.all_seeds[0], p.all_prompts[0], "png",info=info, p=p, suffix=suffix)
+                            except:
+                                logger.error("Cannot save a result image - please, check SD WebUI Settings (Saving and Paths)")
+                            if self.mask_face and self.save_face_mask and masked_faces is not None:
+                                result_images.append(masked_faces)
+                                suffix = f"-mask-ff-{j+1}"
+                                try:
+                                    img_path = save_image(masked_faces, p.outpath_samples, "", p.all_seeds[0], p.all_prompts[0], "png",info=info, p=p, suffix=suffix)
+                                except:
+                                    logger.error("Cannot save a Masked Face image - please, check SD WebUI Settings (Saving and Paths)")
+                            
+                        elif result is None:
+                            logger.error("Cannot create a result image")
+                if shared.opts.return_grid and len(result_images) > 2 and postprocess_run:
+                    grid = make_grid(result_images)
+                    result_images.insert(0, grid)
+                    try:
+                        save_image(grid, p.outpath_grids, "grid", p.all_seeds[0], p.all_prompts[0], shared.opts.grid_format, info=info, short_filename=not shared.opts.grid_extended_filename, p=p, grid=True)
+                    except:
+                        logger.error("Cannot save a grid - please, check SD WebUI Settings (Saving and Paths)")
+                
+                processed.images = result_images
     def postprocess_batch(self, p, *args, **kwargs):
         if self.enable and not self.save_original:
             images = kwargs["images"]
 
     def postprocess_image(self, p, script_pp: scripts.PostprocessImageArgs, *args):
-        if self.enable and self.swap_in_generated and not self.save_original:
+        if self.enable and self.swap_in_generated and not ( self.save_original or ( self.face_files is not None and len(self.face_files) > 0)):
 
             current_job_number = shared.state.job_no + 1
             job_count = shared.state.job_count
@@ -437,7 +599,7 @@ class FaceSwapScript(scripts.Script):
             if self.source is not None:
                 logger.status("Working: source face index %s, target face index %s", self.source_faces_index, self.faces_index)
                 image: Image.Image = script_pp.image
-                result, output, swapped = swap_face(
+                result, output, swapped, masked_faces = swap_face(
                     self.source,
                     image,
                     source_faces_index=self.source_faces_index,
@@ -449,7 +611,8 @@ class FaceSwapScript(scripts.Script):
                     source_hash_check=self.source_hash_check,
                     target_hash_check=self.target_hash_check,
                     device=self.device,
-                    mask_face=self.mask_face
+                    mask_face=self.mask_face,
+                    mask_options=self.mask_options
                 )
                 try:
                     pp = scripts_postprocessing.PostprocessedImage(result)
@@ -464,7 +627,7 @@ class FaceSwapScript(scripts.Script):
                     #             f.writelines(output)
                 except:
                     logger.error("Cannot create a result image")
-
+            
 
 class FaceSwapScriptExtras(scripts_postprocessing.ScriptPostprocessing):
     name = 'ReActor'
@@ -475,9 +638,9 @@ class FaceSwapScriptExtras(scripts_postprocessing.ScriptPostprocessing):
             with gr.Tab("Main"):
                 with gr.Column():
                     img = gr.Image(type="pil")
+                    #face_files = gr.File(file_count="multiple",file_types=["image"],info="Upload multiple face files and each file will be processed in post processing")
                     enable = gr.Checkbox(False, label="Enable", info=f"The Fast and Simple FaceSwap Extension - {version_flag}")
-                    mask_face = gr.Checkbox(False, label="Mask Faces", info="Attempt to mask only the faces and eliminate pixelation of the image around the contours.")
-                    
+                    mask_face = gr.Checkbox(False, label="Mask Faces", info="Attempt to mask only the faces and eliminate pixelation of the image around the contours. Additional settings in the Masking tab.")
                     gr.Markdown("Source Image (above):")
                     with gr.Row():
                         source_faces_index = gr.Textbox(
@@ -536,6 +699,27 @@ class FaceSwapScriptExtras(scripts_postprocessing.ScriptPostprocessing):
                     upscaler_visibility = gr.Slider(
                         0, 1, 1, step=0.1, label="Upscaler Visibility (if scale = 1)"
                     )
+            with gr.Tab("Masking"):
+                #save_face_mask = gr.Checkbox(False, label="Save Face Mask", info="Save the face mask as a separate image with alpha transparency.")
+                use_minimal_area = gr.Checkbox(MaskOption.DEFAULT_USE_MINIMAL_AREA, label="Use Minimal Area", info="Use the least amount of area for the mask as possible. This is good for multiple faces that are close together or for preserving the most of the surrounding image.")
+                
+                mask_areas = gr.CheckboxGroup(
+                    label="Mask areas", choices=["Face", "Hair", "Hat", "Neck"], type="value", value= MaskOption.DEFAULT_FACE_AREAS
+                )
+                face_size = gr.Radio(
+                    label = "Face Size", choices = [512,256,128],value=MaskOption.DEFAULT_FACE_SIZE,type="value", info="Size of the masked area. Use larger numbers if the face is expected to be large, smaller if small. Default is 512."
+                )
+                mask_blur = gr.Slider(label="Mask blur", minimum=0, maximum=64, step=1, value=12,info="The number of pixels from the outer edge of the mask to blur.")
+
+                mask_vignette_fallback_threshold = gr.Slider(
+                    minimum=0.1,
+                    maximum=1.0,
+                    step=0.01,
+                    value=MaskOption.DEFAULT_VIGNETTE_THRESHOLD,
+                    label="Vignette fallback threshold",
+                    info="Switch to a rectangular vignette mask when masked area is only this specified percentage of Face Size."
+                )
+                
             with gr.Tab("Settings"):
                 models = get_models()
                 with gr.Row(visible=EP_is_visible):
@@ -574,7 +758,7 @@ class FaceSwapScriptExtras(scripts_postprocessing.ScriptPostprocessing):
                         label="Console Log Level",
                         type="index",
                     )
-
+        
         args = {
             'img': img,
             'enable': enable,
@@ -592,7 +776,14 @@ class FaceSwapScriptExtras(scripts_postprocessing.ScriptPostprocessing):
             'gender_target': gender_target,
             'codeformer_weight': codeformer_weight,
             'device': device,
-            'mask_face':mask_face
+            'mask_face':mask_face,
+           
+            'mask_areas':mask_areas,
+            'mask_blur':mask_blur,
+            'mask_vignette_fallback_threshold':mask_vignette_fallback_threshold,
+            'face_size':face_size,
+            'use_minimal_area':use_minimal_area,
+           
         }
         return args
 
@@ -621,14 +812,23 @@ class FaceSwapScriptExtras(scripts_postprocessing.ScriptPostprocessing):
             restorer_visibility=self.face_restorer_visibility,
             codeformer_weight=self.codeformer_weight,
         )
-
+    @property
+    def mask_options(self) -> MaskOptions:
+        return MaskOptions(
+            mask_areas = self.mask_areas,
+            save_face_mask = self.save_face_mask,
+            mask_blur = self.mask_blur,
+            face_size = self.face_size,
+            vignette_fallback_threshold = self.mask_vignette_fallback_threshold,
+            use_minimal_area = self.use_minimal_area,
+        )
     def process(self, pp: scripts_postprocessing.PostprocessedImage, **args):
         if args['enable']:
             reset_messaged()
             if check_process_halt():
-                return
-
+                return  
             global MODELS_PATH
+            
             self.source = args['img']
             self.face_restorer_name = args['face_restorer_name']
             self.upscaler_scale = args['upscaler_scale']
@@ -643,6 +843,13 @@ class FaceSwapScriptExtras(scripts_postprocessing.ScriptPostprocessing):
             self.codeformer_weight = args['codeformer_weight']
             self.device = args['device']
             self.mask_face = args['mask_face']
+            self.save_face_mask = None
+            self.mask_areas= args['mask_areas']
+            self.mask_blur= args['mask_blur']
+            self.mask_vignette_fallback_threshold= args['mask_vignette_fallback_threshold']
+            self.face_size= args['face_size']
+            self.use_minimal_area= args['use_minimal_area']
+            self.face_files = None
             if self.gender_source is None or self.gender_source == "No":
                 self.gender_source = 0
             if self.gender_target is None or self.gender_target == "No":
@@ -664,12 +871,12 @@ class FaceSwapScriptExtras(scripts_postprocessing.ScriptPostprocessing):
                 reset_messaged()
 
             set_Device(self.device)
-            
+            apply_logging_patch(self.console_logging_level)
             if self.source is not None:
-                apply_logging_patch(self.console_logging_level)
+                
                 logger.status("Working: source face index %s, target face index %s", self.source_faces_index, self.faces_index)
                 image: Image.Image = pp.image
-                result, output, swapped = swap_face(
+                result, output, swapped,masked_faces = swap_face(
                     self.source,
                     image,
                     source_faces_index=self.source_faces_index,
@@ -681,7 +888,8 @@ class FaceSwapScriptExtras(scripts_postprocessing.ScriptPostprocessing):
                     source_hash_check=True,
                     target_hash_check=True,
                     device=self.device,
-                    mask_face=self.mask_face
+                    mask_face=self.mask_face,
+                    mask_options=self.mask_options
                 )
                 try:
                     pp.info["ReActor"] = True

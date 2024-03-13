@@ -1,11 +1,17 @@
 <div align="center">
 
-  <img src="https://github.com/Gourieff/Assets/raw/main/sd-webui-reactor/ReActor_logo_red.png?raw=true" alt="logo" width="180px"/>
+  <img src="https://github.com/Gourieff/Assets/raw/main/sd-webui-reactor/ReActor_logo_NEW_EN.png?raw=true" alt="logo" width="180px"/>
     
-  ![Version](https://img.shields.io/badge/version-0.5.0-brightgreen?style=for-the-badge&labelColor=darkgreen)
+  ![Version](https://img.shields.io/badge/version-0.7.0_beta6-green?style=for-the-badge&labelColor=darkgreen)
   
-  <a href='https://ko-fi.com/gourieff' target='_blank'><img height='33' src='https://storage.ko-fi.com/cdn/kofi3.png?v=3' border='0' alt='Buy Me a Coffee at ko-fi.com' /></a>
-  
+  <a href="https://boosty.to/artgourieff" target="_blank">
+    <img src="https://lovemet.ru/www/boosty.jpg" width="108" alt="Support Me on Boosty"/>
+    <br>
+    <sup>
+      Support This Project
+    </sup>
+  </a>
+
   <hr>
   
   [![Commit activity](https://img.shields.io/github/commit-activity/t/Gourieff/sd-webui-reactor/main?cacheSeconds=0)](https://github.com/Gourieff/sd-webui-reactor/commits/main)
@@ -22,45 +28,91 @@
 
 ---
   <b>
-    <a href="#installation">Installation</a> | <a href="#features">Features</a> | <a href="#usage">Usage</a> | <a href="#api">API</a> | <a href="#troubleshooting">Troubleshooting</a> | <a href="#updating">Updating</a> | <a href="#comfyui">ComfyUI</a> | <a href="#disclaimer">Disclaimer</a>
+    <a href="#latestupdate">What's new</a> | <a href="#installation">Installation</a> | <a href="#features">Features</a> | <a href="#usage">Usage</a> | <a href="#api">API</a> | <a href="#troubleshooting">Troubleshooting</a> | <a href="#updating">Updating</a> | <a href="#comfyui">ComfyUI</a> | <a href="#disclaimer">Disclaimer</a>
   </b>
 </div>
 
 ---
 
-<table>
-  <tr>
-    <td width="134px">
-      <a href="https://boosty.to/artgourieff" target="_blank">
-        <img src="https://lovemet.ru/www/boosty.jpg" width="108" alt="Support Me on Boosty"/>
-        <br>
-        <sup>
-          Support This Project
-        </sup>
-      </a>
-    </td>
-    <td>
-      ReActor is an extension for Stable Diffusion WebUI that allows a very easy and accurate face-replacement (face swap) in images. Based on <a href="https://github.com/Gourieff/ReActor-UI" target="_blank">ReActor-UI</a>.
-    </td>
-    <td width="144px">
-      <a href="https://paypal.me/artgourieff" target="_blank">
-        <img src="https://www.paypalobjects.com/digitalassets/c/website/logo/full-text/pp_fc_hl.svg" width="108" alt="Support Me via PayPal"/>
-        <br>
-        <sup>
-          Donate to This Project
-        </sup>
-      </a>
-    </td>
-  </tr>
-</table>
-
 <img src="https://github.com/Gourieff/Assets/raw/main/sd-webui-reactor/demo_crop.jpg?raw=true" alt="example"/>
+
+<a name="latestupdate">
+
+## What's new in the latest updates
+
+<details>
+	<summary><a>Click to expand</a></summary>
+
+### 0.7.0 <sub><sup>BETA2
+
+- X/Y/Z is improved! One more parameter is ready: you can now select several face models to create a variation of swaps to choose the best one!
+
+<img src="https://github.com/Gourieff/Assets/blob/main/sd-webui-reactor/0.7.0-whatsnew-05.jpg?raw=true" alt="0.7.0-whatsnew-05" width="100%"/>
+
+To use "Face Model" axis - you should enable ReActor and choose any face model as the Source:<br>
+<img src="https://github.com/Gourieff/Assets/blob/main/sd-webui-reactor/0.7.0-whatsnew-07.jpg?raw=true" alt="0.7.0-whatsnew-07" width="50%"/><img src="https://github.com/Gourieff/Assets/blob/main/sd-webui-reactor/0.7.0-whatsnew-06.jpg?raw=true" alt="0.7.0-whatsnew-06" width="50%"/>
+
+Full size demo image: [xyz_demo_2.png](https://raw.githubusercontent.com/Gourieff/Assets/main/sd-webui-reactor/xyz_demo_2.png)
+
+### 0.7.0 <sub><sup>BETA1
+
+- X/Y/Z Script support (up to 3 axes: CodeFormer Weight, Restorer Visibility, Face Mask Correction)
+
+<img src="https://github.com/Gourieff/Assets/blob/main/sd-webui-reactor/0.7.0-whatsnew-03.jpg?raw=true" alt="0.7.0-whatsnew-03" width="100%"/>
+
+<img src="https://github.com/Gourieff/Assets/blob/main/sd-webui-reactor/0.7.0-whatsnew-04.jpg?raw=true" alt="0.7.0-whatsnew-04" width="100%"/>
+
+Full size demo image: [xyz_demo.png](https://raw.githubusercontent.com/Gourieff/Assets/main/sd-webui-reactor/xyz_demo.png)
+
+__Don't forget to enable ReActor and set any source (to prevent "no source" error)__
+
+### 0.7.0 <sub><sup>ALPHA1
+
+- You can now blend faces to build blended face models ("Tools->Face Models->Blend") - due to popular demand
+
+<img src="https://github.com/Gourieff/Assets/blob/main/sd-webui-reactor/0.7.0-whatsnew-01.jpg?raw=true" alt="0.7.0-whatsnew-01" width="100%"/><img src="https://github.com/Gourieff/Assets/blob/main/sd-webui-reactor/0.7.0-whatsnew-02.jpg?raw=true" alt="0.7.0-whatsnew-02" width="100%"/>
+
+- CUDA 12 Support in the Installer script for 1.17.0 ORT-GPU library
+- New tab "Detection" with "Threshold" and "Max Faces" parameters
+
+### 0.6.1 <sub><sup>BETA3
+
+- 'Force Upscale' option inside the 'Upscale' tab: ReActor will run the Upscaler even if there's no face is detected (FR https://github.com/Gourieff/sd-webui-reactor/issues/116)
+- ReActor shows filenames of source images in-process when the multiple images mode or the folder mode (random as well) is selected
+
+### 0.6.1 <sub><sup>BETA2
+
+- 'Save original' option works fine now when you select 'Multiple Images' or 'Source Folder'
+- Random Mode for 'Source Folder'
+
+<img src="https://github.com/Gourieff/Assets/blob/main/sd-webui-reactor/random_from_folder_demo_01.jpg?raw=true" alt="0.6.1-whatsnew-01" width="100%"/>
+
+### 0.6.0
+
+- New Logo
+- Adaptation to A1111 1.7.0 (appropriate GFPGAN loader)
+- New URL for the main model file
+- UI reworked
+- You can now load several source images (with reference faces) or set the path to the folder containing faces images
+
+<img src="https://github.com/Gourieff/Assets/blob/main/sd-webui-reactor/multiple_source_images_demo_01.png?raw=true" alt="0.6.0-whatsnew-01" width="100%"/>
+
+<img src="https://github.com/Gourieff/Assets/blob/main/sd-webui-reactor/multiple_source_images_demo_02.png?raw=true" alt="0.6.0-whatsnew-02" width="100%"/>
+
+### 0.5.1
+
+- You can save face models as "safetensors" files (stored in `<sd-web-ui-folder>\models\reactor\faces`) and load them into ReActor, keeping super lightweight face models of the faces you use;
+- "Face Mask Correction" option - if you encounter some pixelation around face contours, this option will be useful;
+
+<img src="https://github.com/Gourieff/Assets/blob/main/sd-webui-reactor/face_model_demo_01.jpg?raw=true" alt="0.5.0-whatsnew-01" width="100%"/>
+
+</details>
 
 ## Installation
 
-[Automatic1111](#a1111) | [Vladmandic SD.Next](#sdnext) | [Google Colab SD WebUI](#colab)
+[A1111 WebUI / WebUI-Forge](#a1111) | [SD.Next](#sdnext) | [Google Colab SD WebUI](#colab)
 
-<a name="a1111">If you use [AUTOMATIC1111 web-ui](https://github.com/AUTOMATIC1111/stable-diffusion-webui/):
+<a name="a1111">If you use [AUTOMATIC1111 SD WebUI](https://github.com/AUTOMATIC1111/stable-diffusion-webui/) or [SD WebUI Forge](https://github.com/lllyasviel/stable-diffusion-webui-forge):
 
 1. (For Windows Users):
   - Install **Visual Studio 2022** (Community version, for example - you need this step to build some of dependencies):
@@ -68,8 +120,8 @@
   - OR only **VS C++ Build Tools** (if you don't need the whole Visual Studio) and select "Desktop Development with C++" under "Workloads -> Desktop & Mobile":
   https://visualstudio.microsoft.com/visual-cpp-build-tools/
   - OR if you don't want to install VS or VS C++ BT - follow [this steps (sec. VIII)](#insightfacebuild)
-2. In web-ui, go to the "Extensions" tab and use this URL `https://github.com/Gourieff/sd-webui-reactor` in the "Install from URL" tab and click "Install"
-3. Please, wait for several minutes until the installation process will be finished
+2. In web-ui, go to the "Extensions" tab, load "Available" extensions and type "ReActor" in the search field or use this URL `https://github.com/Gourieff/sd-webui-reactor` in the "Install from URL" tab - and click "Install"
+3. Please, wait for several minutes until the installation process will be finished (be patient, don't interrupt the process)
 4. Check the last message in your SD-WebUI Console:
 * If you see the message "--- PLEASE, RESTART the Server! ---" - so, do it, stop the Server (CTRL+C or CMD+C) and start it again - or just go to the "Installed" tab, click "Apply and restart UI" 
 * If you see the message "Done!", just reload the UI
@@ -82,7 +134,7 @@
 3. Go to (Windows)`automatic\venv\Scripts` or (MacOS/Linux)`automatic/venv/bin`, run Terminal or Console (cmd) for that folder and type `activate`
 4. Run `pip install insightface==0.7.3`
 5. Run SD.Next, go to the "Extensions" tab and use this URL `https://github.com/Gourieff/sd-webui-reactor` in the "Install from URL" tab and click "Install"
-6. Please, wait for several minutes until the installation process will be finished
+6. Please, wait for several minutes until the installation process will be finished (be patient, don't interrupt the process)
 7. Check the last message in your SD.Next Console:
 * If you see the message "--- PLEASE, RESTART the Server! ---" - stop the Server (CTRL+C or CMD+C) or just close your console
 8. Go to the `automatic\extensions\sd-webui-reactor` directory - if you see there `models\insightface` folder with the file `inswapper_128.onnx`, just move the file to the `automatic\models\insightface` folder
@@ -90,8 +142,8 @@
 
 <a name="colab">If you use [Cagliostro Colab UI](https://github.com/Linaqruf/sd-notebook-collection):
 
-1. In active WebUI, go to the "Extensions" tab and use this URL `https://github.com/Gourieff/sd-webui-reactor` in the "Install from URL" tab and click "Install"
-2. Please, wait for several minutes until the installation process will be finished
+1. In active WebUI, go to the "Extensions" tab, load "Available" extensions and type "ReActor" in the search field or use this URL `https://github.com/Gourieff/sd-webui-reactor` in the "Install from URL" tab - and click "Install"
+2. Please, wait for several minutes until the installation process will be finished (be patient, don't interrupt the process)
 3. When you see the message "--- PLEASE, RESTART the Server! ---" (in your Colab Notebook Start UI section "Start Cagliostro Colab UI") - just go to the "Installed" tab and click "Apply and restart UI"
 4. Enjoy!
 
@@ -103,10 +155,12 @@
 - Ability to **save original images** (made before swapping)
 - **Face restoration** of a swapped face
 - **Upscaling** of a resulting image
+- Saving ans loading **Safetensors Face Models**
+- **Facial Mask Correction** to avoid any  pixelation around face contours
 - Ability to set the **Postprocessing order**
 - **100% compatibility** with different **SD WebUIs**: Automatic1111, SD.Next, Cagliostro Colab UI
 - **Fast performance** even with CPU, ReActor for SD WebUI is absolutely not picky about how powerful your GPU is
-- **CUDA** acceleration support from the version 0.5.0
+- **CUDA** acceleration support since version 0.5.0
 - **[API](/API.md) support**: both SD WebUI built-in and external (via POST/GET requests)
 - **ComfyUI [support](https://github.com/Gourieff/comfyui-reactor-node)**
 - **Mac M1/M2 [support](https://github.com/Gourieff/sd-webui-reactor/issues/42)**
@@ -198,7 +252,7 @@ Please, check the path where "inswapper_128.onnx" model is stored. It must be in
 7. Then one-by-one:
    - `pip install insightface==0.7.3`
    - `pip install onnx`
-   - `pip install onnxruntime-gpu>=1.16.1`
+   - `pip install "onnxruntime-gpu>=1.16.1"`
    - `pip install opencv-python`
    - `pip install tqdm`
 8. Type `deactivate`, you can close your Terminal or Console and start your SD WebUI, ReActor should start OK - if not, welcome to the Issues section.
@@ -222,7 +276,7 @@ Probably, you need to disable the "SD-CN-Animation" extension (or perhaps some a
 
 This error may occur if there's smth wrong with the model file `inswapper_128.onnx`
 
-Try to download it manually from [here](https://github.com/facefusion/facefusion-assets/releases/download/models/inswapper_128.onnx)
+Try to download it manually from [here](https://huggingface.co/datasets/Gourieff/ReActor/resolve/main/models/inswapper_128.onnx)
 and put it to the `stable-diffusion-webui\models\insightface` replacing existing one
 
 ### **VI. "ValueError: This ORT build has ['TensorrtExecutionProvider', 'CUDAExecutionProvider', 'CPUExecutionProvider'] enabled" OR "ValueError: This ORT build has ['AzureExecutionProvider', 'CPUExecutionProvider'] enabled"**
@@ -233,7 +287,7 @@ and put it to the `stable-diffusion-webui\models\insightface` replacing existing
 4. Then:
 - `python -m pip install -U pip`
 - `pip uninstall -y onnxruntime onnxruntime-gpu onnxruntime-silicon onnxruntime-extensions`
-- `pip install onnxruntime-gpu>=1.16.1`
+- `pip install "onnxruntime-gpu>=1.16.1"`
 
 If it didn't help - it seems that you have another extension reinstalling `onnxruntime` when SD WebUI checks requirements. Please see your extensions list. Some extensions can causes reinstalling of `onnxruntime-gpu` to `onnxruntime<1.16.1` every time SD WebUI runs.<br>ORT 1.16.0 has a bug https://github.com/microsoft/onnxruntime/issues/17631 - don't install it!
 
@@ -246,7 +300,7 @@ If it didn't help - it seems that you have another extension reinstalling `onnxr
 5. Then:
 - `python -m pip install -U pip`
 - `pip uninstall protobuf`
-- `pip install protobuf>=3.20.3`
+- `pip install "protobuf>=3.20.3"`
 
 If this method doesn't help - there is some other extension that has a wrong version of protobuf dependence and SD WebUI installs it on a startup requirements check
 
@@ -255,10 +309,10 @@ If this method doesn't help - there is some other extension that has a wrong ver
 ### **VIII. (For Windows users) If you still cannot build Insightface for some reasons or just don't want to install Visual Studio or VS C++ Build Tools - do the following:**
 
 1. Close (stop) your SD WebUI Server if it's running
-2. Download and put [prebuilt Insightface package](https://github.com/Gourieff/sd-webui-reactor/raw/main/example/insightface-0.7.3-cp310-cp310-win_amd64.whl) into the stable-diffusion-webui (or SD.Next) root folder (where you have "webui-user.bat" file)
-3. From stable-diffusion-webui (or SD.Next) root folder run CMD and `.\venv\Scripts\activate`
-4. Then update your PIP: `python -m pip install -U pip`
-5. Then install Insightface: `pip install insightface-0.7.3-cp310-cp310-win_amd64.whl`
+2. Download and put [prebuilt Insightface package](https://github.com/Gourieff/Assets/raw/main/Insightface/insightface-0.7.3-cp310-cp310-win_amd64.whl) into the stable-diffusion-webui (or SD.Next) root folder where you have "webui-user.bat" file or (A1111 Portable) "run.bat"
+3. From stable-diffusion-webui (or SD.Next) root folder run CMD and `.\venv\Scripts\activate`<br>OR<br>(A1111 Portable) Run CMD
+4. Then update your PIP: `python -m pip install -U pip`<br>OR<br>(A1111 Portable)`system\python\python.exe -m pip install -U pip`
+5. Then install Insightface: `pip install insightface-0.7.3-cp310-cp310-win_amd64.whl`<br>OR<br>(A1111 Portable)`system\python\python.exe -m pip install insightface-0.7.3-cp310-cp310-win_amd64.whl`
 6. Enjoy!
 
 ### **IX. 07-August-23 Update problem**
@@ -292,7 +346,7 @@ For the installation instruction follow the [ReActor Node repo](https://github.c
 
 This software is meant to be a productive contribution to the rapidly growing AI-generated media industry. It will help artists with tasks such as animating a custom character or using the character as a model for clothing etc.
 
-The developers of this software are aware of its possible unethical applicaitons and are committed to take preventative measures against them. We will continue to develop this project in the positive direction while adhering to law and ethics.
+The developers of this software are aware of its possible unethical application and are committed to take preventative measures against them. We will continue to develop this project in the positive direction while adhering to law and ethics.
 
 Users of this software are expected to use this software responsibly while abiding the local law. If face of a real person is being used, users are suggested to get consent from the concerned person and clearly mention that it is a deepfake when posting content online. **Developers and Contributors of this software are not responsible for actions of end-users.**
 

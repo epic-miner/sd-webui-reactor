@@ -2,17 +2,12 @@ import os, glob
 import gradio as gr
 import tempfile
 from PIL import Image
-try:
-    import torch.cuda as cuda
-    EP_is_visible = True if cuda.is_available() else False
-except:
-    EP_is_visible = False
 
 from typing import List
 from PIL import Image
 import modules.scripts as scripts
 from modules.upscaler import Upscaler, UpscalerData
-from modules import scripts, shared, images, scripts_postprocessing
+from modules import scripts, shared, images, scripts_postprocessing, ui_components
 from modules.processing import (
     Processed,
     StableDiffusionProcessing,
@@ -20,38 +15,33 @@ from modules.processing import (
 )
 from modules.face_restoration import FaceRestoration
 from modules.images import save_image
-try:
-    from modules.paths_internal import models_path
-except:
-    try:
-        from modules.paths import models_path
-    except:
-        model_path = os.path.abspath("models")
 
+from reactor_ui import (
+    ui_main,
+    ui_upscale,
+    ui_tools,
+    ui_settings,
+    ui_detection,
+    ui_masking,
+)
 from scripts.reactor_logger import logger
-from scripts.reactor_swapper import EnhancementOptions,MaskOptions,MaskOption, swap_face, check_process_halt, reset_messaged
+from scripts.reactor_swapper import (
+    EnhancementOptions,
+    DetectionOptions,
+    swap_face,
+    check_process_halt,
+    reset_messaged,
+    MaskOptions,
+    MaskOption,
+)
 from scripts.reactor_version import version_flag, app_title
 from scripts.console_log_patch import apply_logging_patch
-from scripts.reactor_helpers import make_grid, get_image_path, set_Device
-from scripts.reactor_globals import DEVICE, DEVICE_LIST
-
-
-
-MODELS_PATH = None
-
-def get_models():
-    global MODELS_PATH
-    models_path_init = os.path.join(models_path, "insightface/*")
-    models = glob.glob(models_path_init)
-    models = [x for x in models if x.endswith(".onnx") or x.endswith(".pth")]
-    models_names = []
-    for model in models:
-        model_path = os.path.split(model)
-        if MODELS_PATH is None:
-            MODELS_PATH = model_path[0]
-        model_name = model_path[1]
-        models_names.append(model_name)
-    return models_names
+from scripts.reactor_helpers import (
+    make_grid,
+    set_Device,
+    get_SDNEXT,
+)
+from scripts.reactor_globals import SWAPPER_MODELS_PATH #, DEVICE, DEVICE_LIST
 
 
 class FaceSwapScript(scripts.Script):
@@ -62,161 +52,46 @@ class FaceSwapScript(scripts.Script):
         return scripts.AlwaysVisible
 
     def ui(self, is_img2img):
-        with gr.Accordion(f"{app_title}", open=False):
-            enable = gr.Checkbox(False, label="Enable", info=f"The Fast and Simple FaceSwap Extension - {version_flag}")
-            gr.Markdown("<br>")
-            with gr.Tab("Main"):
+        with ui_components.InputAccordion(False, label=f"{app_title}") as enable:
+        # with gr.Accordion(f"{app_title}", open=False):
 
-                with gr.Column():
-                    with gr.Tab("Single Source Image"):
-                        img = gr.Image(type="pil")
-                    with gr.Tab("Multiple Source Images"):
-                        face_files = gr.File(label="Multiple Source Face Files",file_count="multiple",file_types=["image"],info="Upload multiple face files and each file will be processed in post processing")
-                    save_original = gr.Checkbox(False, label="Save Original", info="Save the original image(s) made before swapping; If you use \"img2img\" - this option will affect with \"Swap in generated\" only")
-                    mask_face = gr.Checkbox(False, label="Mask Faces", info="Attempt to mask only the faces and eliminate pixelation of the image around the contours. Additional settings in the Masking tab.")
-                    
-                    gr.Markdown("<br>")
-                    gr.Markdown("Source Image (above):")
-                    with gr.Row():
-                        source_faces_index = gr.Textbox(
-                            value="0",
-                            placeholder="Which face(s) to use as Source (comma separated)",
-                            label="Comma separated face number(s); Example: 0,2,1",
-                        )
-                        gender_source = gr.Radio(
-                            ["No", "Female Only", "Male Only"],
-                            value="No",
-                            label="Gender Detection (Source)",
-                            type="index",
-                        )
-                    gr.Markdown("<br>")
-                    gr.Markdown("Target Image (result):")
-                    with gr.Row():
-                        faces_index = gr.Textbox(
-                            value="0",
-                            placeholder="Which face(s) to Swap into Target (comma separated)",
-                            label="Comma separated face number(s); Example: 1,0,2",
-                        )
-                        gender_target = gr.Radio(
-                            ["No", "Female Only", "Male Only"],
-                            value="No",
-                            label="Gender Detection (Target)",
-                            type="index",
-                        )
-                    gr.Markdown("<br>")
-                    with gr.Row():
-                        face_restorer_name = gr.Radio(
-                            label="Restore Face",
-                            choices=["None"] + [x.name() for x in shared.face_restorers],
-                            value=shared.face_restorers[0].name(),
-                            type="value",
-                        )
-                        with gr.Column():
-                            face_restorer_visibility = gr.Slider(
-                                0, 1, 1, step=0.1, label="Restore Face Visibility"
-                            )
-                            codeformer_weight = gr.Slider(
-                                0, 1, 0.5, step=0.1, label="CodeFormer Weight", info="0 = maximum effect, 1 = minimum effect"
-                            )
-                    gr.Markdown("<br>")
-                    swap_in_source = gr.Checkbox(
-                        False,
-                        label="Swap in source image",
-                        visible=is_img2img,
-                    )
-                    swap_in_generated = gr.Checkbox(
-                        True,
-                        label="Swap in generated image",
-                        visible=is_img2img,
-                    )                    
-            with gr.Tab("Upscale"):
-                restore_first = gr.Checkbox(
-                    True,
-                    label="1. Restore Face -> 2. Upscale (-Uncheck- if you want vice versa)",
-                    info="Postprocessing Order"
-                )
-                upscaler_name = gr.Dropdown(
-                    choices=[upscaler.name for upscaler in shared.sd_upscalers],
-                    label="Upscaler",
-                    value="None",
-                    info="Won't scale if you choose -Swap in Source- via img2img, only 1x-postprocessing will affect (texturing, denoising, restyling etc.)"
-                )
-                gr.Markdown("<br>")
-                with gr.Row():
-                    upscaler_scale = gr.Slider(1, 8, 1, step=0.1, label="Scale by")
-                    upscaler_visibility = gr.Slider(
-                        0, 1, 1, step=0.1, label="Upscaler Visibility (if scale = 1)"
-                    )
-            with gr.Tab("Masking"):
-                save_face_mask = gr.Checkbox(False, label="Save Face Mask", info="Save the face mask as a separate image with alpha transparency.")
-                use_minimal_area = gr.Checkbox(MaskOption.DEFAULT_USE_MINIMAL_AREA, label="Use Minimal Area", info="Use the least amount of area for the mask as possible. This is good for multiple faces that are close together or for preserving the most of the surrounding image.")
-                
-                mask_areas = gr.CheckboxGroup(
-                    label="Mask areas", choices=["Face", "Hair", "Hat", "Neck"], type="value", value= MaskOption.DEFAULT_FACE_AREAS
-                )
-                face_size = gr.Radio(
-                    label = "Face Size", choices = [512,256,128],value=MaskOption.DEFAULT_FACE_SIZE,type="value", info="Size of the masked area. Use larger numbers if the face is expected to be large, smaller if small. Default is 512."
-                )
-                mask_blur = gr.Slider(label="Mask blur", minimum=0, maximum=64, step=1, value=12,info="The number of pixels from the outer edge of the mask to blur.")
+            # def on_files_upload_uncheck_so(selected: bool):
+            #     global SAVE_ORIGINAL
+            #     SAVE_ORIGINAL = selected
+            #     return gr.Checkbox.update(value=False,visible=False)
+            # def on_files_clear():
+            #     clear_faces_list()
+            #     return gr.Checkbox.update(value=SAVE_ORIGINAL,visible=True)
 
-                mask_vignette_fallback_threshold = gr.Slider(
-                    minimum=0.1,
-                    maximum=1.0,
-                    step=0.01,
-                    value=MaskOption.DEFAULT_VIGNETTE_THRESHOLD,
-                    label="Vignette fallback threshold",
-                    info="Switch to a rectangular vignette mask when masked area is only this specified percentage of Face Size."
-                )
-            with gr.Tab("Settings"):
-                models = get_models()
-                with gr.Row(visible=EP_is_visible):
-                    device = gr.Radio(
-                        label="Execution Provider",
-                        choices=DEVICE_LIST,
-                        value=DEVICE,
-                        type="value",
-                        info="If you already run 'Generate' - RESTART is required to apply. Click 'Save', (A1111) Extensions Tab -> 'Apply and restart UI' or (SD.Next) close the Server and start it again",
-                        scale=2,
-                    )
-                    save_device_btn = gr.Button("Save", scale=0)
-                save = gr.Markdown("", visible=EP_is_visible)
-                setattr(device, "do_not_save_to_config", True)
-                save_device_btn.click(
-                    set_Device,
-                    inputs=[device],
-                    outputs=[save],
-                )
-                with gr.Row():
-                    if len(models) == 0:
-                        logger.warning(
-                            "You should at least have one model in models directory, please read the doc here : https://github.com/Gourieff/sd-webui-reactor/"
-                        )
-                        model = gr.Dropdown(
-                            choices=models,
-                            label="Model not found, please download one and reload WebUI",
-                        )
-                    else:
-                        model = gr.Dropdown(
-                            choices=models, label="Model", value=models[0]
-                        )
-                    console_logging_level = gr.Radio(
-                        ["No log", "Minimum", "Default"],
-                        value="Minimum",
-                        label="Console Log Level",
-                        type="index",
-                    )
-                gr.Markdown("<br>")
-                with gr.Row():
-                    source_hash_check = gr.Checkbox(
-                        True,
-                        label="Source Image Hash Check",
-                        info="Recommended to keep it ON. Processing is faster when Source Image is the same."
-                    )
-                    target_hash_check = gr.Checkbox(
-                        False,
-                        label="Target Image Hash Check",
-                        info="Affects if you use Extras tab or img2img with only 'Swap in source image' on."
-                    )
+            # SD.Next fix
+            if get_SDNEXT():
+                enable = gr.Checkbox(False, label="Enable")
+            
+            # enable = gr.Checkbox(False, label="Enable", info=f"The Fast and Simple FaceSwap Extension - {version_flag}")
+            gr.Markdown(f"<sup>The Fast and Simple FaceSwap Extension - {version_flag}</sup>")
+
+            # TAB MAIN
+            msgs: dict = {
+                "extra_multiple_source": "",
+            }
+            img, imgs, select_source, face_model, source_folder, save_original, mask_face, source_faces_index, gender_source, faces_index, gender_target, face_restorer_name, face_restorer_visibility, codeformer_weight, swap_in_source, swap_in_generated, random_image = ui_main.show(is_img2img=is_img2img, **msgs)
+            
+            # TAB DETECTION
+            det_thresh, det_maxnum = ui_detection.show()
+            
+            # TAB UPSCALE
+            restore_first, upscaler_name, upscaler_scale, upscaler_visibility, upscale_force = ui_upscale.show()
+
+            # TAB MASKING
+            save_face_mask, use_minimal_area, mask_areas, face_size, mask_blur, mask_vignette_fallback_threshold = ui_masking.show()
+            
+            # TAB TOOLS
+            ui_tools.show()
+            
+            # TAB SETTINGS
+            model, device, console_logging_level, source_hash_check, target_hash_check = ui_settings.show()
+            
+            gr.Markdown("<span style='display:block;text-align:right;padding:3px;font-size:0.666em;margin-bottom:-12px;'>by <a style='font-weight:normal' href='https://github.com/Gourieff' target='_blank'>Eugene Gourieff</a></span>")
 
         return [
             img,
@@ -241,13 +116,20 @@ class FaceSwapScript(scripts.Script):
             target_hash_check,
             device,
             mask_face,
+            select_source,
+            face_model,
+            source_folder,
+            imgs,
+            random_image,
+            upscale_force,
+            det_thresh,
+            det_maxnum,
             save_face_mask,
             mask_areas,
             mask_blur,
             use_minimal_area,
             face_size,
             mask_vignette_fallback_threshold,
-            face_files
         ]
 
 
@@ -268,13 +150,21 @@ class FaceSwapScript(scripts.Script):
     @property
     def enhancement_options(self) -> EnhancementOptions:
         return EnhancementOptions(
-            do_restore_first = self.restore_first,
+            do_restore_first=self.restore_first,
             scale=self.upscaler_scale,
             upscaler=self.upscaler,
             face_restorer=self.face_restorer,
             upscale_visibility=self.upscaler_visibility,
             restorer_visibility=self.face_restorer_visibility,
             codeformer_weight=self.codeformer_weight,
+            upscale_force=self.upscale_force
+        )
+    
+    @property
+    def detection_options(self) -> DetectionOptions:
+        return DetectionOptions(
+            det_thresh=self.det_thresh,
+            det_maxnum=self.det_maxnum
         )
     @property
     def mask_options(self) -> MaskOptions:
@@ -312,23 +202,31 @@ class FaceSwapScript(scripts.Script):
         target_hash_check,
         device,
         mask_face,
+        select_source,
+        face_model,
+        source_folder,
+        imgs,
+        random_image,
+        upscale_force,
+        det_thresh,
+        det_maxnum,
         save_face_mask:bool,
         mask_areas,
         mask_blur:int,
         mask_use_minimal_area,
         mask_face_size,
-        mask_vignette_fallback_threshold,
-        face_files
+        mask_vignette_fallback_threshold
     ):
         self.enable = enable
         if self.enable:
-            
+
+            logger.debug("*** Start process")
+
             reset_messaged()
             if check_process_halt():
                 return
             
-            global MODELS_PATH
-            
+            global SWAPPER_MODELS_PATH
             self.source = img
             self.face_restorer_name = face_restorer_name
             self.upscaler_scale = upscaler_scale
@@ -338,7 +236,7 @@ class FaceSwapScript(scripts.Script):
             self.upscaler_name = upscaler_name  
             self.swap_in_source = swap_in_source
             self.swap_in_generated = swap_in_generated
-            self.model = os.path.join(MODELS_PATH,model)
+            self.model = os.path.join(SWAPPER_MODELS_PATH,model)
             self.console_logging_level = console_logging_level
             self.gender_source = gender_source
             self.gender_target = gender_target
@@ -348,13 +246,20 @@ class FaceSwapScript(scripts.Script):
             self.target_hash_check = target_hash_check
             self.device = device
             self.mask_face = mask_face
+            self.select_source = select_source
+            self.face_model = face_model
+            self.source_folder = source_folder
+            self.source_imgs = imgs
+            self.random_image = random_image
+            self.upscale_force = upscale_force
+            self.det_thresh=det_thresh
+            self.det_maxnum=det_maxnum
             self.save_face_mask = save_face_mask
             self.mask_blur = mask_blur
             self.mask_areas = mask_areas
             self.mask_face_size = mask_face_size
             self.mask_vignette_fallback_threshold = mask_vignette_fallback_threshold
             self.mask_use_minimal_area = mask_use_minimal_area
-            self.face_files = face_files
             if self.gender_source is None or self.gender_source == "No":
                 self.gender_source = 0
             if self.gender_target is None or self.gender_target == "No":
@@ -375,13 +280,34 @@ class FaceSwapScript(scripts.Script):
                 self.source_hash_check = True
             if self.target_hash_check is None:
                 self.target_hash_check = False
+            if self.mask_face is None:
+                self.mask_face = False
+            if self.random_image is None:
+                self.random_image = False
+            if self.upscale_force is None:
+                self.upscale_force = False
+            
+            if shared.state.job_count > 0:
+                # logger.debug(f"Job count: {shared.state.job_count}")
+                self.face_restorer_visibility = shared.opts.data['restorer_visibility'] if 'restorer_visibility' in shared.opts.data.keys() else face_restorer_visibility
+                self.codeformer_weight = shared.opts.data['codeformer_weight'] if 'codeformer_weight' in shared.opts.data.keys() else codeformer_weight
+                self.mask_face = shared.opts.data['mask_face'] if 'mask_face' in shared.opts.data.keys() else mask_face
+                self.face_model = shared.opts.data['face_model'] if 'face_model' in shared.opts.data.keys() else face_model
 
+            logger.debug("*** Set Device")
             set_Device(self.device)
-            apply_logging_patch(console_logging_level)
-            if self.source is not None:
+
+            if (self.save_original is None or not self.save_original) and (self.select_source == 2 or self.source_imgs is not None):
+                p.do_not_save_samples = True
+            
+            if ((self.source is not None or self.source_imgs is not None) and self.select_source == 0) or ((self.face_model is not None and self.face_model != "None") and self.select_source == 1) or ((self.source_folder is not None and self.source_folder != "") and self.select_source == 2):
+                logger.debug("*** Log patch")
+                apply_logging_patch(console_logging_level)
                 
-               
                 if isinstance(p, StableDiffusionProcessingImg2Img) and self.swap_in_source:
+
+                    logger.debug("*** Check process")
+
                     logger.status("Working: source face index %s, target face index %s", self.source_faces_index, self.faces_index)
 
                     for i in range(len(p.init_images)):
@@ -399,7 +325,13 @@ class FaceSwapScript(scripts.Script):
                             source_hash_check=self.source_hash_check,
                             target_hash_check=self.target_hash_check,
                             device=self.device,
-                            mask_face=mask_face,
+                            mask_face=self.mask_face,
+                            select_source=self.select_source,
+                            face_model = self.face_model,
+                            source_folder = None,
+                            source_imgs = None,
+                            random_image = False,
+                            detection_options=self.detection_options,
                             mask_options=self.mask_options
                         )
                         p.init_images[i] = result
@@ -413,9 +345,12 @@ class FaceSwapScript(scripts.Script):
             
             elif self.face_files is None or len(self.face_files) == 0:
                 logger.error("Please provide a source face")
+                return
 
     def postprocess(self, p: StableDiffusionProcessing, processed: Processed, *args):
         if self.enable:
+
+            logger.debug("*** Check postprocess - before IF")
 
             reset_messaged()
             if check_process_halt():
@@ -424,125 +359,30 @@ class FaceSwapScript(scripts.Script):
 
             orig_images : List[Image.Image] = processed.images[processed.index_of_first_image:]
             orig_infotexts : List[str] = processed.infotexts[processed.index_of_first_image:]
-            result_images:List[Image.Image] = []
-            
-            
-            if self.save_original:
+
+            if self.save_original or ((self.select_source == 2 and self.source_folder is not None and self.source_folder != "") or (self.select_source == 0 and self.source_imgs is not None and self.source is None)):
+
+                logger.debug("*** Check postprocess - after IF")
 
                 result_images: List = processed.images
                 # result_info: List = processed.infotexts
 
                 if self.swap_in_generated:
+
                     logger.status("Working: source face index %s, target face index %s", self.source_faces_index, self.faces_index)
+
                     if self.source is not None:
-                       
-                        for i,(img,info) in enumerate(zip(orig_images, orig_infotexts)):
-                            if check_process_halt():
-                                postprocess_run = False
-                                break
-                            if len(orig_images) > 1:
-                                logger.status("Swap in %s", i)
-                            result, output, swapped, masked_faces = swap_face(
-                                self.source,
-                                img,
-                                source_faces_index=self.source_faces_index,
-                                faces_index=self.faces_index,
-                                model=self.model,
-                                enhancement_options=self.enhancement_options,
-                                gender_source=self.gender_source,
-                                gender_target=self.gender_target,
-                                source_hash_check=self.source_hash_check,
-                                target_hash_check=self.target_hash_check,
-                                device=self.device,
-                                mask_face=self.mask_face,
-                                mask_options=self.mask_options
-                            )
-                            if result is not None and swapped > 0:
-                                result_images.append(result)
-                                suffix = "-swapped"
-                                try:
-                                    img_path = save_image(result, p.outpath_samples, "", p.all_seeds[0], p.all_prompts[0], "png",info=info, p=p, suffix=suffix)
-                                except:
-                                    logger.error("Cannot save a result image - please, check SD WebUI Settings (Saving and Paths)")
-                                if self.mask_face and self.save_face_mask and masked_faces is not None:
-                                    result_images.append(masked_faces)
-                                    suffix = "-mask"
-                                    try:
-                                        img_path = save_image(masked_faces, p.outpath_samples, "", p.all_seeds[0], p.all_prompts[0], "png",info=info, p=p, suffix=suffix)
-                                    except:
-                                        logger.error("Cannot save a Masked Face image - please, check SD WebUI Settings (Saving and Paths)")
-                                  
-                            elif result is None:
-                                logger.error("Cannot create a result image")
-                            
-                            # if len(output) != 0:
-                            #     split_fullfn = os.path.splitext(img_path[0])
-                            #     fullfn = split_fullfn[0] + ".txt"
-                            #     with open(fullfn, 'w', encoding="utf8") as f:
-                            #         f.writelines(output)
-                    if self.face_files is not None and len(self.face_files) > 0:
-                       
-                        for i,(img,info) in enumerate(zip(orig_images, orig_infotexts)):
-                            for j,f_img in enumerate(self.face_files):
-                                
-                                if check_process_halt():
-                                    postprocess_run = False
-                                    break
-                                if len(self.face_files) > 1:
-                                    logger.status("Swap in face file #%s", j+1)
-                                result, output, swapped, masked_faces = swap_face(
-                                    Image.open(os.path.abspath(f_img.name)),
-                                    img,
-                                    source_faces_index=self.source_faces_index,
-                                    faces_index=self.faces_index,
-                                    model=self.model,
-                                    enhancement_options=self.enhancement_options,
-                                    gender_source=self.gender_source,
-                                    gender_target=self.gender_target,
-                                    source_hash_check=self.source_hash_check,
-                                    target_hash_check=self.target_hash_check,
-                                    device=self.device,
-                                    mask_face=self.mask_face,
-                                    mask_options=self.mask_options
-                                )
-                                if result is not None and swapped > 0:
-                                    result_images.append(result)
-                                    suffix = f"-swapped-ff-{j+1}"
-                                    try:
-                                        img_path = save_image(result, p.outpath_samples, "", p.all_seeds[0], p.all_prompts[0], "png",info=info, p=p, suffix=suffix)
-                                    except:
-                                        logger.error("Cannot save a result image - please, check SD WebUI Settings (Saving and Paths)")
-                                    if self.mask_face and self.save_face_mask and masked_faces is not None:
-                                        result_images.append(masked_faces)
-                                        suffix = f"-mask-ff-{j+1}"
-                                        try:
-                                            img_path = save_image(masked_faces, p.outpath_samples, "", p.all_seeds[0], p.all_prompts[0], "png",info=info, p=p, suffix=suffix)
-                                        except:
-                                            logger.error("Cannot save a Masked Face image - please, check SD WebUI Settings (Saving and Paths)")
-                                    
-                                elif result is None:
-                                    logger.error("Cannot create a result image")
-                if shared.opts.return_grid and len(result_images) > 2 and postprocess_run:
-                    grid = make_grid(result_images)
-                    result_images.insert(0, grid)
-                    try:
-                        save_image(grid, p.outpath_grids, "grid", p.all_seeds[0], p.all_prompts[0], shared.opts.grid_format, info=info, short_filename=not shared.opts.grid_extended_filename, p=p, grid=True)
-                    except:
-                        logger.error("Cannot save a grid - please, check SD WebUI Settings (Saving and Paths)")
-                
-                processed.images = result_images
-                # processed.infotexts = result_info
-            elif self.face_files is not None and len(self.face_files) > 0:
-                for i,(img,info) in enumerate(zip(orig_images, orig_infotexts)):
-                    for j,f_img in enumerate(self.face_files):
-                        
+                        # self.source_folder = None
+                        self.source_imgs = None
+
+                    for i,(img,info) in enumerate(zip(orig_images, orig_infotexts)):
                         if check_process_halt():
                             postprocess_run = False
                             break
-                        if len(self.face_files) > 1:
-                            logger.status("Swap in face file #%s", j+1)
-                        result, output, swapped, masked_faces = swap_face(
-                            Image.open(os.path.abspath(f_img.name)),
+                        if len(orig_images) > 1:
+                            logger.status("Swap in %s", i)
+                        result, output, swapped = swap_face(
+                            self.source,
                             img,
                             source_faces_index=self.source_faces_index,
                             faces_index=self.faces_index,
@@ -554,25 +394,57 @@ class FaceSwapScript(scripts.Script):
                             target_hash_check=self.target_hash_check,
                             device=self.device,
                             mask_face=self.mask_face,
+                            select_source=self.select_source,
+                            face_model = self.face_model,
+                            source_folder = self.source_folder,
+                            source_imgs = self.source_imgs,
+                            random_image = self.random_image,
+                            detection_options=self.detection_options,
                             mask_options=self.mask_options
                         )
-                        if result is not None and swapped > 0:
-                            result_images.append(result)
-                            suffix = f"-swapped-ff-{j+1}"
-                            try:
-                                img_path = save_image(result, p.outpath_samples, "", p.all_seeds[0], p.all_prompts[0], "png",info=info, p=p, suffix=suffix)
-                            except:
-                                logger.error("Cannot save a result image - please, check SD WebUI Settings (Saving and Paths)")
-                            if self.mask_face and self.save_face_mask and masked_faces is not None:
-                                result_images.append(masked_faces)
-                                suffix = f"-mask-ff-{j+1}"
+
+                        if self.select_source == 2 or (self.select_source == 0 and self.source_imgs is not None and self.source is None):
+                            if len(result) > 0 and swapped > 0:
+                                # result_images.extend(result)
+                                if self.save_original:
+                                    result_images.extend(result)
+                                else:
+                                    result_images = result
+                                suffix = "-swapped"
+                                for i,x in enumerate(result):
+                                    try:
+                                        img_path = save_image(result[i], p.outpath_samples, "", p.all_seeds[0], p.all_prompts[0], "png", info=info, p=p, suffix=suffix)
+                                    except:
+                                        logger.error("Cannot save a result image - please, check SD WebUI Settings (Saving and Paths)")
+
+                            elif len(result) == 0:
+                                logger.error("Cannot create a result image")
+
+                        else:
+                            if result is not None and swapped > 0:
+                                result_images.append(result)
+                                suffix = "-swapped"
                                 try:
-                                    img_path = save_image(masked_faces, p.outpath_samples, "", p.all_seeds[0], p.all_prompts[0], "png",info=info, p=p, suffix=suffix)
+                                    img_path = save_image(result, p.outpath_samples, "", p.all_seeds[0], p.all_prompts[0], "png", info=info, p=p, suffix=suffix)
                                 except:
-                                    logger.error("Cannot save a Masked Face image - please, check SD WebUI Settings (Saving and Paths)")
-                            
-                        elif result is None:
-                            logger.error("Cannot create a result image")
+                                    logger.error("Cannot save a result image - please, check SD WebUI Settings (Saving and Paths)")
+                                # if self.mask_face and self.save_face_mask and masked_faces is not None:
+                                #     result_images.append(masked_faces)
+                                #     suffix = "-mask"
+                                #     try:
+                                #         img_path = save_image(masked_faces, p.outpath_samples, "", p.all_seeds[0], p.all_prompts[0], "png",info=info, p=p, suffix=suffix)
+                                #     except:
+                                #         logger.error("Cannot save a Masked Face image - please, check SD WebUI Settings (Saving and Paths)")
+                                  
+                            elif result is None:
+                                logger.error("Cannot create a result image")
+                        
+                        # if len(output) != 0:
+                        #     split_fullfn = os.path.splitext(img_path[0])
+                        #     fullfn = split_fullfn[0] + ".txt"
+                        #     with open(fullfn, 'w', encoding="utf8") as f:
+                        #         f.writelines(output)
+                
                 if shared.opts.return_grid and len(result_images) > 2 and postprocess_run:
                     grid = make_grid(result_images)
                     result_images.insert(0, grid)
@@ -582,12 +454,32 @@ class FaceSwapScript(scripts.Script):
                         logger.error("Cannot save a grid - please, check SD WebUI Settings (Saving and Paths)")
                 
                 processed.images = result_images
+                # processed.infotexts = result_info
+            
+            elif self.select_source == 0 and self.source is not None and self.source_imgs is not None:
+
+                logger.debug("*** Check postprocess - after ELIF")
+
+                if self.result is not None:
+                    orig_infotexts : List[str] = processed.infotexts[processed.index_of_first_image:]
+                    processed.images = [self.result]
+                    try:
+                        img_path = save_image(self.result, p.outpath_samples, "", p.all_seeds[0], p.all_prompts[0], "png", info=orig_infotexts[0], p=p, suffix="")
+                    except:
+                        logger.error("Cannot save a result image - please, check SD WebUI Settings (Saving and Paths)")
+                else:
+                    logger.error("Cannot create a result image")
+
+    
     def postprocess_batch(self, p, *args, **kwargs):
         if self.enable and not self.save_original:
+            logger.debug("*** Check postprocess_batch")
             images = kwargs["images"]
 
     def postprocess_image(self, p, script_pp: scripts.PostprocessImageArgs, *args):
-        if self.enable and self.swap_in_generated and not ( self.save_original or ( self.face_files is not None and len(self.face_files) > 0)):
+        if self.enable and self.swap_in_generated and not self.save_original and ((self.select_source == 0 and self.source is not None) or self.select_source == 1):
+
+            logger.debug("*** Check postprocess_image")
 
             current_job_number = shared.state.job_no + 1
             job_count = shared.state.job_count
@@ -596,169 +488,84 @@ class FaceSwapScript(scripts.Script):
             if check_process_halt():
                 return
             
-            if self.source is not None:
-                logger.status("Working: source face index %s, target face index %s", self.source_faces_index, self.faces_index)
-                image: Image.Image = script_pp.image
-                result, output, swapped, masked_faces = swap_face(
-                    self.source,
-                    image,
-                    source_faces_index=self.source_faces_index,
-                    faces_index=self.faces_index,
-                    model=self.model,
-                    enhancement_options=self.enhancement_options,
-                    gender_source=self.gender_source,
-                    gender_target=self.gender_target,
-                    source_hash_check=self.source_hash_check,
-                    target_hash_check=self.target_hash_check,
-                    device=self.device,
-                    mask_face=self.mask_face,
-                    mask_options=self.mask_options
-                )
-                try:
-                    pp = scripts_postprocessing.PostprocessedImage(result)
-                    pp.info = {}
-                    p.extra_generation_params.update(pp.info)
-                    script_pp.image = pp.image
+            # if (self.source is not None and self.select_source == 0) or ((self.face_model is not None and self.face_model != "None") and self.select_source == 1):
+            logger.status("Working: source face index %s, target face index %s", self.source_faces_index, self.faces_index)
+            image: Image.Image = script_pp.image
+            result, output, swapped = swap_face(
+                self.source,
+                image,
+                source_faces_index=self.source_faces_index,
+                faces_index=self.faces_index,
+                model=self.model,
+                enhancement_options=self.enhancement_options,
+                gender_source=self.gender_source,
+                gender_target=self.gender_target,
+                source_hash_check=self.source_hash_check,
+                target_hash_check=self.target_hash_check,
+                device=self.device,
+                mask_face=self.mask_face,
+                select_source=self.select_source,
+                face_model = self.face_model,
+                source_folder = None,
+                source_imgs = None,
+                random_image = False,
+                detection_options=self.detection_options,
+                mask_options=self.mask_options
+            )
+            self.result = result
+            try:
+                pp = scripts_postprocessing.PostprocessedImage(result)
+                pp.info = {}
+                p.extra_generation_params.update(pp.info)
+                script_pp.image = pp.image
 
-                    # if len(output) != 0:
-                    #     result_path = get_image_path(script_pp.image, p.outpath_samples, "", p.all_seeds[0], p.all_prompts[0], "txt", p=p, suffix="-swapped")
-                    #     if len(output) != 0:
-                    #         with open(result_path, 'w', encoding="utf8") as f:
-                    #             f.writelines(output)
-                except:
-                    logger.error("Cannot create a result image")
-            
+                # if len(output) != 0:
+                #     result_path = get_image_path(script_pp.image, p.outpath_samples, "", p.all_seeds[0], p.all_prompts[0], "txt", p=p, suffix="-swapped")
+                #     if len(output) != 0:
+                #         with open(result_path, 'w', encoding="utf8") as f:
+                #             f.writelines(output)
+            except:
+                logger.error("Cannot create a result image")
+
 
 class FaceSwapScriptExtras(scripts_postprocessing.ScriptPostprocessing):
     name = 'ReActor'
     order = 20000
 
     def ui(self):
-        with gr.Accordion(f"{app_title}", open=False):
-            with gr.Tab("Main"):
-                with gr.Column():
-                    img = gr.Image(type="pil")
-                    #face_files = gr.File(file_count="multiple",file_types=["image"],info="Upload multiple face files and each file will be processed in post processing")
-                    enable = gr.Checkbox(False, label="Enable", info=f"The Fast and Simple FaceSwap Extension - {version_flag}")
-                    mask_face = gr.Checkbox(False, label="Mask Faces", info="Attempt to mask only the faces and eliminate pixelation of the image around the contours. Additional settings in the Masking tab.")
-                    gr.Markdown("Source Image (above):")
-                    with gr.Row():
-                        source_faces_index = gr.Textbox(
-                            value="0",
-                            placeholder="Which face(s) to use as Source (comma separated)",
-                            label="Comma separated face number(s); Example: 0,2,1",
-                        )
-                        gender_source = gr.Radio(
-                            ["No", "Female Only", "Male Only"],
-                            value="No",
-                            label="Gender Detection (Source)",
-                            type="index",
-                        )
-                    gr.Markdown("Target Image (result):")
-                    with gr.Row():
-                        faces_index = gr.Textbox(
-                            value="0",
-                            placeholder="Which face(s) to Swap into Target (comma separated)",
-                            label="Comma separated face number(s); Example: 1,0,2",
-                        )
-                        gender_target = gr.Radio(
-                            ["No", "Female Only", "Male Only"],
-                            value="No",
-                            label="Gender Detection (Target)",
-                            type="index",
-                        )
-                    with gr.Row():
-                        face_restorer_name = gr.Radio(
-                            label="Restore Face",
-                            choices=["None"] + [x.name() for x in shared.face_restorers],
-                            value=shared.face_restorers[0].name(),
-                            type="value",
-                        )
-                        with gr.Column():
-                            face_restorer_visibility = gr.Slider(
-                                0, 1, 1, step=0.1, label="Restore Face Visibility"
-                            )
-                            codeformer_weight = gr.Slider(
-                                0, 1, 0.5, step=0.1, label="CodeFormer Weight", info="0 = maximum effect, 1 = minimum effect"
-                            )
+        with ui_components.InputAccordion(False, label=f"{app_title}") as enable:
+        # with gr.Accordion(f"{app_title}", open=False):
+            
+            # SD.Next fix
+            if get_SDNEXT():
+                enable = gr.Checkbox(False, label="Enable")
 
-            with gr.Tab("Upscale"):
-                restore_first = gr.Checkbox(
-                    True,
-                    label="1. Restore Face -> 2. Upscale (-Uncheck- if you want vice versa)",
-                    info="Postprocessing Order"
-                )
-                upscaler_name = gr.Dropdown(
-                    choices=[upscaler.name for upscaler in shared.sd_upscalers],
-                    label="Upscaler",
-                    value="None",
-                    info="Won't scale if you choose -Swap in Source- via img2img, only 1x-postprocessing will affect (texturing, denoising, restyling etc.)"
-                )
-                with gr.Row():
-                    upscaler_scale = gr.Slider(1, 8, 1, step=0.1, label="Scale by")
-                    upscaler_visibility = gr.Slider(
-                        0, 1, 1, step=0.1, label="Upscaler Visibility (if scale = 1)"
-                    )
-            with gr.Tab("Masking"):
-                #save_face_mask = gr.Checkbox(False, label="Save Face Mask", info="Save the face mask as a separate image with alpha transparency.")
-                use_minimal_area = gr.Checkbox(MaskOption.DEFAULT_USE_MINIMAL_AREA, label="Use Minimal Area", info="Use the least amount of area for the mask as possible. This is good for multiple faces that are close together or for preserving the most of the surrounding image.")
-                
-                mask_areas = gr.CheckboxGroup(
-                    label="Mask areas", choices=["Face", "Hair", "Hat", "Neck"], type="value", value= MaskOption.DEFAULT_FACE_AREAS
-                )
-                face_size = gr.Radio(
-                    label = "Face Size", choices = [512,256,128],value=MaskOption.DEFAULT_FACE_SIZE,type="value", info="Size of the masked area. Use larger numbers if the face is expected to be large, smaller if small. Default is 512."
-                )
-                mask_blur = gr.Slider(label="Mask blur", minimum=0, maximum=64, step=1, value=12,info="The number of pixels from the outer edge of the mask to blur.")
+            # enable = gr.Checkbox(False, label="Enable", info=f"The Fast and Simple FaceSwap Extension - {version_flag}")
+            gr.Markdown(f"<span style='display:block;font-size:0.75em;margin-bottom:-24px;'>The Fast and Simple FaceSwap Extension - {version_flag}</span>")
 
-                mask_vignette_fallback_threshold = gr.Slider(
-                    minimum=0.1,
-                    maximum=1.0,
-                    step=0.01,
-                    value=MaskOption.DEFAULT_VIGNETTE_THRESHOLD,
-                    label="Vignette fallback threshold",
-                    info="Switch to a rectangular vignette mask when masked area is only this specified percentage of Face Size."
-                )
-                
-            with gr.Tab("Settings"):
-                models = get_models()
-                with gr.Row(visible=EP_is_visible):
-                    device = gr.Radio(
-                        label="Execution Provider",
-                        choices=DEVICE_LIST,
-                        value=DEVICE,
-                        type="value",
-                        info="If you already run 'Generate' - RESTART is required to apply. Click 'Save', (A1111) Extensions Tab -> 'Apply and restart UI' or (SD.Next) close the Server and start it again",
-                        scale=2,
-                    )
-                    save_device_btn = gr.Button("Save", scale=0)
-                save = gr.Markdown("", visible=EP_is_visible)
-                setattr(device, "do_not_save_to_config", True)
-                save_device_btn.click(
-                    set_Device,
-                    inputs=[device],
-                    outputs=[save],
-                )
-                with gr.Row():
-                    if len(models) == 0:
-                        logger.warning(
-                            "You should at least have one model in models directory, please read the doc here : https://github.com/Gourieff/sd-webui-reactor/"
-                        )
-                        model = gr.Dropdown(
-                            choices=models,
-                            label="Model not found, please download one and reload WebUI",
-                        )
-                    else:
-                        model = gr.Dropdown(
-                            choices=models, label="Model", value=models[0]
-                        )
-                    console_logging_level = gr.Radio(
-                        ["No log", "Minimum", "Default"],
-                        value="Minimum",
-                        label="Console Log Level",
-                        type="index",
-                    )
-        
+            # TAB MAIN
+            msgs: dict = {
+                "extra_multiple_source": " | Сomparison grid as a result",
+            }
+            img, imgs, select_source, face_model, source_folder, save_original, mask_face, source_faces_index, gender_source, faces_index, gender_target, face_restorer_name, face_restorer_visibility, codeformer_weight, swap_in_source, swap_in_generated, random_image = ui_main.show(is_img2img=False, show_br=False, **msgs)
+            
+            # TAB DETECTION
+            det_thresh, det_maxnum = ui_detection.show()
+            
+            # TAB UPSCALE
+            restore_first, upscaler_name, upscaler_scale, upscaler_visibility, upscale_force = ui_upscale.show(show_br=False)
+
+            # TAB MASKING
+            save_face_mask, use_minimal_area, mask_areas, face_size, mask_blur, mask_vignette_fallback_threshold = ui_masking.show()
+                        
+            # TAB TOOLS
+            ui_tools.show()
+                        
+            # TAB SETTINGS
+            model, device, console_logging_level, source_hash_check, target_hash_check = ui_settings.show(hash_check_block=False)
+                        
+            gr.Markdown("<span style='display:block;text-align:right;padding-right:3px;font-size:0.666em;margin: -9px 0'>by <a style='font-weight:normal' href='https://github.com/Gourieff' target='_blank'>Eugene Gourieff</a></span>")
+
         args = {
             'img': img,
             'enable': enable,
@@ -776,14 +583,20 @@ class FaceSwapScriptExtras(scripts_postprocessing.ScriptPostprocessing):
             'gender_target': gender_target,
             'codeformer_weight': codeformer_weight,
             'device': device,
-            'mask_face':mask_face,
-           
+            'mask_face': mask_face,
+            'select_source': select_source,
+            'face_model': face_model,
+            'source_folder': source_folder,
+            'imgs': imgs,
+            'random_image': random_image,
+            'upscale_force': upscale_force,
+            'det_thresh': det_thresh,
+            'det_maxnum': det_maxnum,
             'mask_areas':mask_areas,
             'mask_blur':mask_blur,
             'mask_vignette_fallback_threshold':mask_vignette_fallback_threshold,
             'face_size':face_size,
             'use_minimal_area':use_minimal_area,
-           
         }
         return args
 
@@ -811,6 +624,14 @@ class FaceSwapScriptExtras(scripts_postprocessing.ScriptPostprocessing):
             upscale_visibility=self.upscaler_visibility,
             restorer_visibility=self.face_restorer_visibility,
             codeformer_weight=self.codeformer_weight,
+            upscale_force=self.upscale_force,
+        )
+    
+    @property
+    def detection_options(self) -> DetectionOptions:
+        return DetectionOptions(
+            det_thresh=self.det_thresh,
+            det_maxnum=self.det_maxnum
         )
     @property
     def mask_options(self) -> MaskOptions:
@@ -826,9 +647,9 @@ class FaceSwapScriptExtras(scripts_postprocessing.ScriptPostprocessing):
         if args['enable']:
             reset_messaged()
             if check_process_halt():
-                return  
-            global MODELS_PATH
-            
+                return
+
+            global SWAPPER_MODELS_PATH
             self.source = args['img']
             self.face_restorer_name = args['face_restorer_name']
             self.upscaler_scale = args['upscaler_scale']
@@ -836,20 +657,27 @@ class FaceSwapScriptExtras(scripts_postprocessing.ScriptPostprocessing):
             self.face_restorer_visibility = args['face_restorer_visibility']
             self.restore_first = args['restore_first']
             self.upscaler_name = args['upscaler_name']
-            self.model = os.path.join(MODELS_PATH, args['model'])
+            self.model = os.path.join(SWAPPER_MODELS_PATH, args['model'])
             self.console_logging_level = args['console_logging_level']
             self.gender_source = args['gender_source']
             self.gender_target = args['gender_target']
             self.codeformer_weight = args['codeformer_weight']
             self.device = args['device']
             self.mask_face = args['mask_face']
+            self.select_source = args['select_source']
+            self.face_model = args['face_model']
+            self.source_folder = args['source_folder']
+            self.source_imgs = args['imgs']
+            self.random_image = args['random_image']
+            self.upscale_force = args['upscale_force']
+            self.det_thresh = args['det_thresh']
+            self.det_maxnum = args['det_maxnum']
             self.save_face_mask = None
             self.mask_areas= args['mask_areas']
             self.mask_blur= args['mask_blur']
             self.mask_vignette_fallback_threshold= args['mask_vignette_fallback_threshold']
             self.face_size= args['face_size']
             self.use_minimal_area= args['use_minimal_area']
-            self.face_files = None
             if self.gender_source is None or self.gender_source == "No":
                 self.gender_source = 0
             if self.gender_target is None or self.gender_target == "No":
@@ -864,6 +692,12 @@ class FaceSwapScriptExtras(scripts_postprocessing.ScriptPostprocessing):
                 self.source_faces_index = [0]
             if len(self.faces_index) == 0:
                 self.faces_index = [0]
+            if self.mask_face is None:
+                self.mask_face = False
+            if self.random_image is None:
+                self.random_image = False
+            if self.upscale_force is None:
+                self.upscale_force = False
 
             current_job_number = shared.state.job_no + 1
             job_count = shared.state.job_count
@@ -871,12 +705,30 @@ class FaceSwapScriptExtras(scripts_postprocessing.ScriptPostprocessing):
                 reset_messaged()
 
             set_Device(self.device)
-            apply_logging_patch(self.console_logging_level)
-            if self.source is not None:
-                
+
+            logger.debug("We're here: process() 1")
+            
+            if (self.source is not None and self.select_source == 0) or ((self.face_model is not None and self.face_model != "None") and self.select_source == 1) or ((self.source_folder is not None and self.source_folder != "") and self.select_source == 2) or ((self.source_imgs is not None and self.source is None) and self.select_source == 0):
+
+                logger.debug("We're here: process() 2")
+
+                if self.source is not None and self.select_source == 0:
+                    self.source_imgs = None
+
+                apply_logging_patch(self.console_logging_level)
                 logger.status("Working: source face index %s, target face index %s", self.source_faces_index, self.faces_index)
+                # if self.select_source != 2:
                 image: Image.Image = pp.image
-                result, output, swapped,masked_faces = swap_face(
+
+                # Extract alpha channel
+                logger.debug(f"image = {image}")
+                if image.mode == 'RGBA':
+                    _, _, _, alpha = image.split()
+                else:
+                    alpha = None
+                logger.debug(f"alpha = {alpha}")
+
+                result, output, swapped = swap_face(
                     self.source,
                     image,
                     source_faces_index=self.source_faces_index,
@@ -889,13 +741,39 @@ class FaceSwapScriptExtras(scripts_postprocessing.ScriptPostprocessing):
                     target_hash_check=True,
                     device=self.device,
                     mask_face=self.mask_face,
-                    mask_options=self.mask_options
+                    select_source=self.select_source,
+                    face_model=self.face_model,
+                    source_folder=self.source_folder,
+                    source_imgs=self.source_imgs,
+                    random_image=self.random_image,
+                    detection_options=self.detection_options,
+                    mask_options=self.mask_options,
                 )
-                try:
-                    pp.info["ReActor"] = True
-                    pp.image = result
-                    logger.status("---Done!---")
-                except Exception:
-                    logger.error("Cannot create a result image")
+                if self.select_source == 2 or (self.select_source == 0 and self.source_imgs is not None and self.source is None):
+                    if len(result) > 0 and swapped > 0:
+                        image = result[0]
+                        if len(result) > 1:
+                            grid = make_grid(result)
+                            result.insert(0, grid)
+                            image = grid
+                        pp.info["ReActor"] = True
+                        pp.image = image
+                        logger.status("---Done!---")
+                    else:
+                        logger.error("Cannot create a result image")
+                else:
+                    try:
+                        pp.info["ReActor"] = True
+
+                        if alpha is not None:
+                            logger.debug(f"result = {result}")
+                            result = result.convert("RGBA")
+                            result.putalpha(alpha)
+                            logger.debug(f"result_alpha = {result}")
+
+                        pp.image = result
+                        logger.status("---Done!---")
+                    except Exception:
+                        logger.error("Cannot create a result image")
             else:
                 logger.error("Please provide a source face")

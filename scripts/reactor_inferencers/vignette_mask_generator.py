@@ -3,7 +3,7 @@ from typing import Tuple
 import cv2
 import numpy as np
 
-from scripts.inferencers.mask_generator import MaskGenerator
+from scripts.reactor_inferencers.mask_generator import MaskGenerator
 
 
 class VignetteMaskGenerator(MaskGenerator):

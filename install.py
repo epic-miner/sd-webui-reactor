@@ -12,30 +12,30 @@ except:
     try:
         from modules.paths import models_path
     except:
-        model_path = os.path.abspath("models")
+        models_path = os.path.abspath("models")
 
 
 BASE_PATH = os.path.dirname(os.path.realpath(__file__))
 
 req_file = os.path.join(BASE_PATH, "requirements.txt")
 
-models_dir_old = os.path.join(models_path, "roop")
 models_dir = os.path.join(models_path, "insightface")
 
-# Check the deprecated 'roop' folder
-if os.path.exists(models_dir_old):
-    if not os.listdir(models_dir_old) and (not os.listdir(models_dir) or not os.path.exists(models_dir)):
-        os.rename(models_dir_old, models_dir)
-    else:
-        import shutil
-        for file in os.listdir(models_dir_old):
-            shutil.move(os.path.join(models_dir_old, file), os.path.join(models_dir, file))
-        try:
-            os.rmdir(models_dir_old)
-        except Exception as e:
-            print(f"OSError: {e}")
+# DEPRECATED:
+# models_dir_old = os.path.join(models_path, "roop")
+# if os.path.exists(models_dir_old):
+#     if not os.listdir(models_dir_old) and (not os.listdir(models_dir) or not os.path.exists(models_dir)):
+#         os.rename(models_dir_old, models_dir)
+#     else:
+#         import shutil
+#         for file in os.listdir(models_dir_old):
+#             shutil.move(os.path.join(models_dir_old, file), os.path.join(models_dir, file))
+#         try:
+#             os.rmdir(models_dir_old)
+#         except Exception as e:
+#             print(f"OSError: {e}")
             
-model_url = "https://github.com/facefusion/facefusion-assets/releases/download/models/inswapper_128.onnx"
+model_url = "https://huggingface.co/datasets/Gourieff/ReActor/resolve/main/models/inswapper_128.onnx"
 model_name = os.path.basename(model_url)
 model_path = os.path.join(models_dir, model_name)
 
@@ -75,16 +75,18 @@ if not os.path.exists(models_dir):
 if not os.path.exists(model_path):
     download(model_url, model_path)
 
-print("ReActor preheating...", end=' ')
+# print("ReActor preheating...", end=' ')
 
 last_device = None
 first_run = False
+available_devices = ["CPU", "CUDA"]
 
 try:
     last_device_log = os.path.join(BASE_PATH, "last_device.txt")
     with open(last_device_log) as f:
-        for el in f:
-            last_device = el.strip()
+        last_device = f.readline().strip()
+    if last_device not in available_devices:
+        last_device = None
 except:
     last_device = "CPU"
     first_run = True
@@ -95,31 +97,39 @@ with open(req_file) as file:
     install_count = 0
     ort = "onnxruntime-gpu"
     import torch
+    cuda_version = None
     try:
         if torch.cuda.is_available():
-            if first_run:
+            cuda_version = torch.version.cuda
+            print(f"CUDA {cuda_version}")
+            if first_run or last_device is None:
                 last_device = "CUDA"
-        elif torch.backends.mps.is_available() or hasattr(torch,'dml'):
+        elif torch.backends.mps.is_available() or hasattr(torch,'dml') or hasattr(torch,'privateuseone'):
             ort = "onnxruntime"
             # to prevent errors when ORT-GPU is installed but we want ORT instead:
             if first_run:
                 pip_uninstall("onnxruntime", "onnxruntime-gpu")
             # just in case:
-            if last_device == "CUDA":
+            if last_device == "CUDA" or last_device is None:
                 last_device = "CPU"
         else:
-            if last_device == "CUDA":
+            if last_device == "CUDA" or last_device is None:
                 last_device = "CPU"
         with open(os.path.join(BASE_PATH, "last_device.txt"), "w") as txt:
             txt.write(last_device)
-        if not is_installed(ort,"1.16.1",False):
+        if cuda_version is not None and float(cuda_version)>=12: # CU12
+            if not is_installed(ort,"1.17.1",False):
+                install_count += 1
+                pip_uninstall("onnxruntime", "onnxruntime-gpu")
+                pip_install(ort,"--extra-index-url","https://aiinfra.pkgs.visualstudio.com/PublicPackages/_packaging/onnxruntime-cuda-12/pypi/simple/")
+        elif not is_installed(ort,"1.16.1",False):
             install_count += 1
             pip_install(ort, "-U")
     except Exception as e:
         print(e)
         print(f"\nERROR: Failed to install {ort} - ReActor won't start")
         raise e
-    print(f"Device: {last_device}")
+    # print(f"Device: {last_device}")
     strict = True
     for package in file:
         package_version = None

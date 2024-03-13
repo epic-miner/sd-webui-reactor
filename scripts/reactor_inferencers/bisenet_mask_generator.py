@@ -9,9 +9,8 @@ from facexlib.parsing import init_parsing_model
 from facexlib.utils.misc import img2tensor
 from torchvision.transforms.functional import normalize
 from PIL import Image
-from scripts.inferencers.vignette_mask_generator import VignetteMaskGenerator
-from scripts.inferencers.mask_generator import MaskGenerator
-
+from scripts.reactor_inferencers.vignette_mask_generator import VignetteMaskGenerator
+from scripts.reactor_inferencers.mask_generator import MaskGenerator
 
 class BiSeNetMaskGenerator(MaskGenerator):
     def __init__(self) -> None:
@@ -31,7 +30,7 @@ class BiSeNetMaskGenerator(MaskGenerator):
         fallback_ratio: float = 0.10,
         **kwargs,
     ) -> np.ndarray:
-        original_face_image = face_image
+        # original_face_image = face_image
         face_image = face_image.copy()
         face_image = face_image[:, :, ::-1]
 
@@ -67,6 +66,11 @@ class BiSeNetMaskGenerator(MaskGenerator):
             mask = self.fallback_mask_generator.generate_mask(
                 original_face_image, face_area_on_image, use_minimal_area=True
             )
+        # """if MaskGenerator.calculate_mask_coverage(mask) < fallback_ratio:
+        #     logger.info("Use fallback mask generator")
+        #     mask = self.fallback_mask_generator.generate_mask(
+        #         original_face_image, face_area_on_image, use_minimal_area=True
+        #     )"""
        
         return mask
 

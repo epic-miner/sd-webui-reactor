@@ -1,6 +1,6 @@
 import subprocess
 import os, sys
-from typing import Any
+from typing import Any, Optional
 import pkg_resources
 from tqdm import tqdm
 import urllib.request
@@ -13,7 +13,6 @@ except:
         from modules.paths import models_path
     except:
         models_path = os.path.abspath("models")
-
 
 BASE_PATH = os.path.dirname(os.path.realpath(__file__))
 
@@ -34,7 +33,7 @@ models_dir = os.path.join(models_path, "insightface")
 #             os.rmdir(models_dir_old)
 #         except Exception as e:
 #             print(f"OSError: {e}")
-            
+
 model_url = "https://huggingface.co/datasets/Gourieff/ReActor/resolve/main/models/inswapper_128.onnx"
 model_name = os.path.basename(model_url)
 model_path = os.path.join(models_dir, model_name)
@@ -45,9 +44,7 @@ def pip_install(*args):
 def pip_uninstall(*args):
     subprocess.run([sys.executable, "-m", "pip", "uninstall", "-y", *args])
 
-def is_installed (
-        package: str, version: str | None = None, strict: bool = True
-):
+def is_installed(package: str, version: Optional[str] = None, strict: bool = True) -> bool:
     has_package = None
     try:
         has_package = pkg_resources.get_distribution(package)
@@ -62,7 +59,7 @@ def is_installed (
     except Exception as e:
         print(f"Error: {e}")
         return False
-    
+
 def download(url, path):
     request = urllib.request.urlopen(url)
     total = int(request.headers.get('Content-Length', 0))
@@ -117,12 +114,12 @@ with open(req_file) as file:
                 last_device = "CPU"
         with open(os.path.join(BASE_PATH, "last_device.txt"), "w") as txt:
             txt.write(last_device)
-        if cuda_version is not None and float(cuda_version)>=12: # CU12
-            if not is_installed(ort,"1.17.1",False):
+        if cuda_version is not None and float(cuda_version) >= 12: # CU12
+            if not is_installed(ort, "1.17.1", False):
                 install_count += 1
                 pip_uninstall("onnxruntime", "onnxruntime-gpu")
-                pip_install(ort,"--extra-index-url","https://aiinfra.pkgs.visualstudio.com/PublicPackages/_packaging/onnxruntime-cuda-12/pypi/simple/")
-        elif not is_installed(ort,"1.16.1",False):
+                pip_install(ort, "--extra-index-url", "https://aiinfra.pkgs.visualstudio.com/PublicPackages/_packaging/onnxruntime-cuda-12/pypi/simple/")
+        elif not is_installed(ort, "1.16.1", False):
             install_count += 1
             pip_install(ort, "-U")
     except Exception as e:
@@ -140,7 +137,7 @@ with open(req_file) as file:
             elif ">=" in package:
                 package_version = package.split('>=')[1]
                 strict = False
-            if not is_installed(package,package_version,strict):
+            if not is_installed(package, package_version, strict):
                 install_count += 1
                 pip_install(package)
         except Exception as e:
